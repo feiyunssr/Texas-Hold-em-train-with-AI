@@ -2,6 +2,8 @@
 
 **状态：NEEDS_CONTEXT**
 
+> 后续复审：本评审留下的 `DESIGN.md` 和 12 人手机牌桌 open issues 已在 [设计方案复审（2026-04-24 follow-up）](./plan-design-review-followup-2026-04-24.md) 中关闭。
+
 ## 评审对象
 
 - [产品需求文档](./PRD.md)

@@ -7,9 +7,12 @@
 ## 文档
 
 - [产品需求文档](docs/PRD.md)
+- [设计系统](DESIGN.md)
 - [Office Hours 决策记录（2026-04-22）](docs/office-hours-2026-04-22.md)
 - [工程方案评审（2026-04-23）](docs/plan-eng-review-2026-04-23.md)
 - [设计方案评审（2026-04-24）](docs/plan-design-review-2026-04-24.md)
+- [设计方案复审（2026-04-24 follow-up）](docs/plan-design-review-followup-2026-04-24.md)
+- [工程方案复核：UI 设计约束（2026-04-24）](docs/plan-eng-review-ui-followup-2026-04-24.md)
 - [TODOs](TODOS.md)
 
 ## 运行配置
@@ -24,3 +27,4 @@
 - `行动前 AI 建议` 是首要训练主航道
 - 整手复盘、场景生成、历史深度分析为后续强化能力
 - 支持结构化手牌历史、标签体系与训练导向统计
+- UI 实现以 [设计系统](DESIGN.md) 为 source of truth，并按 12 人手机牌桌规格验证移动端布局
