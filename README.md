@@ -10,6 +10,10 @@
 - [Office Hours 决策记录（2026-04-22）](docs/office-hours-2026-04-22.md)
 - [工程方案评审（2026-04-23）](docs/plan-eng-review-2026-04-23.md)
 
+## 运行配置
+
+- AI 教练建议的超时时间、自动重试次数和重试退避时间通过 `.env` 配置，变量名参考 [.env.example](.env.example)
+
 ## 当前范围
 
 - 每桌仅 1 个真人用户席位
