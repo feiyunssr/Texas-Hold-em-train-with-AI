@@ -9,6 +9,8 @@
 - [产品需求文档](docs/PRD.md)
 - [Office Hours 决策记录（2026-04-22）](docs/office-hours-2026-04-22.md)
 - [工程方案评审（2026-04-23）](docs/plan-eng-review-2026-04-23.md)
+- [设计方案评审（2026-04-24）](docs/plan-design-review-2026-04-24.md)
+- [TODOs](TODOS.md)
 
 ## 运行配置
 
