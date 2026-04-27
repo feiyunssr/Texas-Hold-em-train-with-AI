@@ -9,10 +9,11 @@
 - [产品需求文档](docs/PRD.md)
 - [设计系统](DESIGN.md)
 - [Office Hours 决策记录（2026-04-22）](docs/office-hours-2026-04-22.md)
-- [工程方案评审（2026-04-23）](docs/plan-eng-review-2026-04-23.md)
-- [设计方案评审（2026-04-24）](docs/plan-design-review-2026-04-24.md)
-- [设计方案复审（2026-04-24 follow-up）](docs/plan-design-review-followup-2026-04-24.md)
-- [工程方案复核：UI 设计约束（2026-04-24）](docs/plan-eng-review-ui-followup-2026-04-24.md)
+- [工程方案评审（2026-04-23）](docs/plan/plan-eng-review-2026-04-23.md)
+- [设计方案评审（2026-04-24）](docs/plan/plan-design-review-2026-04-24.md)
+- [设计方案复审（2026-04-24 follow-up）](docs/plan/plan-design-review-followup-2026-04-24.md)
+- [工程方案复核：UI 设计约束（2026-04-24）](docs/plan/plan-eng-review-ui-followup-2026-04-24.md)
+- [开发执行计划（2026-04-27）](docs/plan/development-execution-plan-2026-04-27.md)
 - [TODOs](TODOS.md)
 
 ## 运行配置

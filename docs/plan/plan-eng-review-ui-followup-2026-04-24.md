@@ -4,8 +4,8 @@
 
 ## 复核对象
 
-- [产品需求文档](./PRD.md)
-- [设计系统](../DESIGN.md)
+- [产品需求文档](../PRD.md)
+- [设计系统](../../DESIGN.md)
 - [工程方案评审（2026-04-23）](./plan-eng-review-2026-04-23.md)
 - [设计方案复审（2026-04-24 follow-up）](./plan-design-review-followup-2026-04-24.md)
 

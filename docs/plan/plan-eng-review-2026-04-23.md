@@ -4,8 +4,8 @@
 
 ## 评审对象
 
-- [产品需求文档](./PRD.md)
-- [Office Hours 决策记录（2026-04-22）](./office-hours-2026-04-22.md)
+- [产品需求文档](../PRD.md)
+- [Office Hours 决策记录（2026-04-22）](../office-hours-2026-04-22.md)
 
 ## 结论
 

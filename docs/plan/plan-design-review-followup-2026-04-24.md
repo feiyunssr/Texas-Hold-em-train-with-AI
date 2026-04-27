@@ -4,10 +4,10 @@
 
 ## 复审对象
 
-- [产品需求文档](./PRD.md)
-- [设计系统](../DESIGN.md)
+- [产品需求文档](../PRD.md)
+- [设计系统](../../DESIGN.md)
 - [初次设计方案评审（2026-04-24）](./plan-design-review-2026-04-24.md)
-- [TODOs](../TODOS.md)
+- [TODOs](../../TODOS.md)
 
 ## 复审目的
 

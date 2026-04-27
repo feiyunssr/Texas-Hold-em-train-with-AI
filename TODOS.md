@@ -6,6 +6,12 @@ No open documentation TODOs.
 
 ## Completed
 
+### 2026-04-27: Create Codex-oriented development execution plan
+
+- **Result:** Completed in [`docs/plan/development-execution-plan-2026-04-27.md`](docs/plan/development-execution-plan-2026-04-27.md).
+- **Closed by:** Converted the PRD, design system and engineering reviews into milestone-based implementation work for Codex, including task boundaries, validation gates, AI visibility rules, billing invariants and QA requirements.
+- **Related cleanup:** README plan links now point to the `docs/plan/` location and include the new execution plan.
+
 ### 2026-04-24: Create `DESIGN.md` before UI implementation
 
 - **Result:** Completed in [`DESIGN.md`](DESIGN.md).
