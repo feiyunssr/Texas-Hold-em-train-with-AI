@@ -8,6 +8,8 @@
 
 当前仓库仍处于产品与设计文档阶段，尚未发现可运行前端、后端或规则引擎代码。因此执行重点不是在既有实现上小修，而是从零搭建一个可验证的 Web 训练平台骨架，并保证第一主航道 `训练牌桌 + 行动前 AI 教练建议` 优先跑通。
 
+执行顺序必须坚持规则引擎优先：M0 只建立工程、测试和领域模块运行条件，M1 作为第一个功能性里程碑先把 NLHE 规则核心做成可独立验证的纯 TypeScript 模块。持久化、运行时、AI 编排和 UI 都只能消费规则引擎输出的状态、合法动作和事件事实，不能反向污染规则核心。
+
 ## 输入依据
 
 - [产品需求文档](../PRD.md)
@@ -37,11 +39,61 @@
 - 领域逻辑：独立 `src/domain` 纯 TypeScript 模块
 - 数据库：PostgreSQL
 - ORM：Prisma
-- 实时同步：WebSocket 或 Server-Sent Events，优先选择实现更小的方案
+- 实时同步：Server-Sent Events + POST 控制面
 - 测试：Vitest 用于规则引擎和服务层，Playwright 用于关键 UI 流程
 - 样式：CSS Modules 或 Tailwind 二选一，但必须落实 `DESIGN.md` token
 
 如 Codex 在初始化时发现用户已有明确偏好的技术栈，应优先遵循用户或仓库现有约定，并更新本计划的“执行偏差记录”。
+
+## 已锁定工程决策
+
+### 规则引擎优先
+
+- M0 不实现业务流程，只建立可运行的 TypeScript、测试、lint、typecheck、env 和 README 基础。
+- M1 的规则引擎必须能脱离 Next.js、数据库、AI 和 UI 独立运行测试。
+- 规则引擎只接受显式输入，输出新状态、合法动作、派生事实和 append-only 事件；不直接读写数据库或调用 AI。
+
+### 实时同步
+
+v1 默认采用 `SSE + POST 控制面`：
+
+- 客户端通过 POST API 创建牌桌、提交用户动作、请求 AI 建议。
+- 客户端通过 SSE 订阅当前 table session 的事件和派生状态。
+- 服务端内部可以使用进程内事件分发作为开发期实现，但 API 边界必须允许后续替换为 Redis、队列或独立 realtime 服务。
+- 不在 v1 默认实现中引入独立 WebSocket 服务；如部署目标要求 WebSocket，必须先记录到“执行偏差记录”。
+
+### 持久化与计费事务
+
+- `ai_artifact` 与对应 `wallet_ledger` 扣费流水必须在同一数据库事务内写入。
+- 只有事务提交成功后，API 和 UI 才能返回或显示 `saved_charged`。
+- 如果 AI 已返回但持久化或扣费事务失败，只能落为 `failed_not_charged` 或 `pending_persistence`，不得写入扣费成功状态。
+- `hand_event_log` 必须包含单手牌内单调递增 `sequence`，并对 `(hand_id, sequence)` 建唯一约束。
+- `decision_snapshot` 必须有稳定 `decision_point_id`，并对 `(hand_id, decision_point_id)` 建唯一约束。
+- `ai_artifact` 必须保存 `request_id`、`decision_point_id`、`schema_version`、`prompt_version`、`model_name`、`provider_name`、请求快照引用和结构化输出。
+- `wallet_ledger` 必须保存 `request_id`、`user_id`、`wallet_account_id`、`ai_artifact_id`、点数变动和余额快照，并对收费类 `request_id` 建唯一约束。
+
+### AI 建议请求语义
+
+- 同一 `decision_point_id` 最多允许一次正式 AI 建议请求。
+- 自动重试属于同一次正式请求，不生成新的正式请求次数。
+- 最终超时、模型错误、网络错误、解析失败、结构化校验失败、存储失败或扣费事务失败均显示 `failed_not_charged`。
+- `failed_not_charged` 仍视为该决策点的正式请求已使用；前端展示失败原因和未扣点状态，但不允许再次发起正式请求。
+- `already_requested` 表示该决策点已有成功、失败或处理中请求，前端必须展示既有状态而不是重新触发。
+- partial 输出在 v1 统一视为未满足正式结构化 schema 的失败结果，不扣点；如需要展示可用字段，只能显示为 `partial_not_final`，不得写入收费流水。
+
+### 用户与钱包模型
+
+- v1 即使只做单用户演示，也必须建立最小 `app_user`、`wallet_account` 和 `wallet_ledger` 边界。
+- 开发环境可创建固定 demo user 和初始点数余额，但所有收费请求必须归属到明确 `user_id` 与 `wallet_account_id`。
+- 点数余额只能由 ledger 派生或由事务内余额快照维护，不能由前端状态决定。
+
+### AI 编排可测试性
+
+- AI 编排层必须通过 provider adapter 调用模型，开发和测试使用 mock provider。
+- 每个 coach/review prompt 必须带 `prompt_version`。
+- 所有模型调用必须记录 `provider_name`、`model_name`、timeout、retry attempts、最终错误类型或成功状态。
+- 结构化输出必须先通过 schema 校验，再进入持久化和扣费事务。
+- 单元测试必须覆盖 success、timeout、provider error、parse/schema failure、storage failure、duplicate request 和 partial output。
 
 ## 里程碑总览
 
@@ -58,11 +110,11 @@
 
 ## M0：工程骨架
 
-目标：创建可运行、可测试、可迭代的项目基础。
+目标：创建可运行、可测试、可迭代的项目基础，并给规则引擎优先开发提供独立 harness。
 
 Codex 任务：
 
-1. 初始化 TypeScript Web 应用和包管理配置。
+1. 初始化 Next.js App Router + TypeScript 应用和包管理配置。
 2. 建立目录边界：
    - `src/domain/poker`
    - `src/domain/training`
@@ -73,13 +125,17 @@ Codex 任务：
    - `src/styles`
 3. 配置 lint、format、typecheck、test 脚本。
 4. 接入 `.env.example` 中的 AI 教练超时与重试变量读取。
-5. 新增最小健康页或训练入口占位页。
+5. 新增最小健康页或训练入口占位页，但不在 M0 实现牌桌业务流程。
+6. 新增规则引擎测试入口，保证 `src/domain/poker` 可脱离 Next.js、数据库、AI 和 UI 独立运行 Vitest。
+7. 更新 README，写明安装、启动、typecheck、test、lint 和 `.env` 配置方式。
 
 验收：
 
 - `npm run typecheck` 通过。
 - `npm test` 或等价测试命令通过。
+- `npm run lint` 或等价 lint 命令通过。
 - 本地开发服务器可启动并打开第一屏。
+- README 包含启动、测试和环境变量说明。
 
 ## M1：规则引擎
 
@@ -108,6 +164,8 @@ Codex 任务：
 Codex 任务：
 
 1. 建立数据模型：
+   - `app_user`
+   - `wallet_account`
    - `table_config`
    - `table_seat_profile`
    - `hand`
@@ -119,14 +177,22 @@ Codex 任务：
    - `wallet_ledger`
 2. 所有长期结构化对象包含 `schema_version`。
 3. 所有收费请求包含幂等 `request_id`。
-4. 建立写入服务，保证事件追加、快照保存、AI 产物保存和账务流水可以审计串联。
-5. 建立 read model 查询接口，支持历史列表和单手回放的最小数据需求。
+4. 建立唯一约束：
+   - `hand_event_log(hand_id, sequence)`
+   - `decision_snapshot(hand_id, decision_point_id)`
+   - `ai_artifact(request_id)`
+   - `wallet_ledger(request_id)` 用于收费类流水幂等
+5. 建立写入服务，保证事件追加、快照保存、AI 产物保存和账务流水可以审计串联。
+6. 建立 AI 产物与账务流水的同事务写入服务：事务提交失败时不得显示或返回已扣点。
+7. 建立 read model 查询接口，支持历史列表和单手回放的最小数据需求。
 
 验收：
 
 - 能从一手已完成 hand id 还原完整事件时间线。
 - 能定位某个决策点对应的 `decision_snapshot`、`ai_artifact` 和 `wallet_ledger`。
 - 重复提交同一 `request_id` 不会重复扣点。
+- demo user 的点数流水能通过 `wallet_account` 归属和查询。
+- 模拟 AI 产物写入成功但账务写入失败时，接口返回未扣点状态，数据库不留下已扣点假象。
 
 ## M3：单桌训练运行时
 
@@ -141,7 +207,10 @@ Codex 任务：
    - 开发期可用规则或 mock 策略保证流程稳定。
    - 真实模型接入必须保持 payload 隔离。
 5. 实现用户动作提交 API，并校验动作必须来自规则引擎生成的合法动作集合。
-6. 实现实时状态同步到前端。
+6. 实现 SSE 状态同步到前端：
+   - POST API 负责创建牌桌、提交动作和请求建议。
+   - SSE stream 负责推送当前 table session 事件和派生状态。
+   - 开发期允许进程内事件分发，但接口不能依赖 React 组件状态。
 
 验收：
 
@@ -149,6 +218,7 @@ Codex 任务：
 - AI 对手能持续行动直到轮到用户。
 - 用户提交合法动作后事件流追加并推进桌面。
 - 非法动作被拒绝且不污染事件流。
+- 前端刷新或重新订阅 SSE 后，可以通过 read model 恢复当前 hand 派生状态。
 
 ## M4：行动前 AI 教练建议
 
@@ -172,13 +242,18 @@ Codex 任务：
    - 读取 `AI_COACH_RETRY_ATTEMPTS`
    - 读取 `AI_COACH_RETRY_BACKOFF_MS`
    - 超时、模型错误、网络错误、解析失败、存储失败均不扣点
+   - 使用 provider adapter 调用 AI，测试环境使用 mock coach provider
+   - 保存 `provider_name`、`model_name`、`prompt_version`、重试次数和最终状态
 5. 实现结构化 AI 输出 schema：
    - 主推荐动作
    - 建议下注尺度
    - 可接受替代动作
    - 最多 3 条关键判断因素
    - 风险或不确定性说明
-6. AI 输出成功持久化后写入 `wallet_ledger`，再返回已扣点状态。
+6. AI 输出必须先通过 schema 校验，再进入持久化和扣费事务。
+7. AI 输出成功持久化后，在同一事务内写入 `wallet_ledger`，事务提交后再返回已扣点状态。
+8. partial 输出在 v1 视为未完成正式结果：可展示已返回字段和 `partial_not_final`，但不写入收费流水。
+9. 最终失败仍消耗该决策点的一次正式请求；前端展示 `failed_not_charged` 或 `already_requested`，不允许再次正式请求。
 
 验收：
 
@@ -186,6 +261,8 @@ Codex 任务：
 - 成功路径能串起 `request_id -> decision_snapshot -> ai_artifact -> wallet_ledger`。
 - 任一失败路径明确返回未扣点状态。
 - 请求期间当前用户决策点冻结，不能重复提交建议请求。
+- timeout、provider error、parse/schema failure、partial output、storage failure、duplicate request 均有测试覆盖。
+- `wallet_ledger` 写入失败时不能留下已扣点状态。
 
 ## M5：v1 UI 主航道
 
@@ -210,7 +287,7 @@ Codex 任务：
    - 提交中状态
 4. 实现 `CoachPanel`：
    - 标题包含 `AI 教练视角`
-   - available、requesting、success saved charged、pending persistence、failed not charged、partial、already requested
+   - available、requesting、success saved charged、pending persistence、failed not charged、partial not final、already requested
    - 不使用“正确答案”“最佳答案”“solver 标准答案”等绝对化文案
 5. 实现手牌结束摘要和基础复盘入口。
 6. 实现移动端 12 人桌压缩布局和 AI 教练 bottom sheet。
@@ -220,6 +297,7 @@ Codex 任务：
 - 用户 5 秒内能判断是否轮到自己、底池多大、可做什么。
 - 行动按钮不展示非法主按钮。
 - AI 建议失败、超时、解析失败或存储失败时清楚显示未扣点。
+- partial 结果必须清楚显示未形成正式建议且未扣点。
 - `360 x 740`、`390 x 844`、`430 x 932` 下行动按钮不被 bottom sheet 遮挡。
 
 ## M6：复盘、历史与回放基础
@@ -230,7 +308,7 @@ Codex 任务：
 
 1. 实现已完成手牌的完整复盘请求，使用 `review-view`。
 2. 复盘输出按街道挂载到 hand event timeline。
-3. 复盘成功持久化后扣点，失败路径未扣点。
+3. 复盘成功持久化后，在同一事务内写入 `wallet_ledger` 并扣点，失败路径未扣点。
 4. 实现历史手牌列表：
    - 时间
    - 人数
@@ -252,6 +330,7 @@ Codex 任务：
 
 - 任意完成手牌可发起复盘。
 - 复盘失败不会扣点。
+- 复盘 `ai_artifact` 与 `wallet_ledger` 满足同一事务和幂等 `request_id` 要求。
 - 历史列表空状态提供进入训练牌桌的主按钮。
 - 回放页面能看到事件流、即时建议、复盘和标签的上下文关系。
 
@@ -284,7 +363,7 @@ Codex 任务：
 
 - `typecheck`、`test`、`lint`、E2E 主流程全部通过。
 - 移动端截图没有重叠、遮挡或按钮不可点问题。
-- README 包含启动、测试和环境变量说明。
+- README 中的启动、测试和环境变量说明与实际脚本一致。
 
 ## Codex 执行模板
 
@@ -319,15 +398,15 @@ Codex 任务：
 ## 推荐首批任务顺序
 
 1. `M0-01` 初始化 Next.js + TypeScript 工程骨架。
-2. `M0-02` 配置测试、类型检查、环境变量读取。
+2. `M0-02` 配置测试、类型检查、lint、环境变量读取和 README 运行说明。
 3. `M1-01` 定义扑克领域类型和事件类型。
 4. `M1-02` 实现座位、盲注、ante、straddle 与发牌。
 5. `M1-03` 实现合法动作生成和行动轮转。
 6. `M1-04` 实现底池、边池与结算测试。
-7. `M2-01` 建立 Prisma schema 和迁移。
-8. `M2-02` 实现事件流、快照、AI artifact、账务写入服务。
-9. `M3-01` 实现训练桌 session 状态机。
-10. `M4-01` 实现 AI 教练视图、一次请求限制和未扣点失败路径。
+7. `M2-01` 建立 Prisma schema、迁移、demo user 和 wallet account。
+8. `M2-02` 实现事件流、快照、AI artifact、账务同事务写入服务。
+9. `M3-01` 实现训练桌 session 状态机和 SSE 同步。
+10. `M4-01` 实现 AI 教练视图、provider adapter、一次请求限制和未扣点失败路径。
 
 ## 风险清单
 
@@ -335,8 +414,11 @@ Codex 任务：
 | --- | --- |
 | 规则引擎被 UI 或 AI 状态污染 | 规则引擎放在独立 domain 模块，只输入状态和事件，只输出新状态、合法动作和派生事实 |
 | AI 视角泄漏隐藏信息 | 所有 AI 请求必须经过 `bot-seat-view`、`hero-coach-view` 或 `review-view` |
-| 扣点状态不可信 | 只有 `wallet_ledger` 写入成功后才显示已扣点 |
+| 扣点状态不可信 | `ai_artifact` 和 `wallet_ledger` 同事务提交成功后才显示已扣点 |
+| 重复扣点 | 对收费类 `request_id` 建唯一约束，所有收费写入通过幂等服务 |
+| partial 输出被误当正式建议 | v1 partial 统一不扣点，展示为 `partial_not_final` |
 | 实时建议阻塞训练节奏 | 请求期间冻结当前决策点，失败未扣点，用户可继续自己行动 |
+| 实时同步实现被部署方式卡住 | v1 锁定 SSE + POST 控制面，不默认引入 WebSocket 服务 |
 | 12 人手机桌不可用 | 从 M5 起单独实现移动布局，不把桌面牌桌等比缩小 |
 | 范围膨胀 | M1-M5 优先，场景生成和长期深度分析不进入第一关键路径 |
 
