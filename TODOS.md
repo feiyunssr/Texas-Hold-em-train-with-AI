@@ -6,6 +6,18 @@ No open documentation TODOs.
 
 ## Completed
 
+### 2026-04-27: Fix M1 NLHE rule review findings
+
+- **Result:** Completed in [`src/domain/poker/index.ts`](src/domain/poker/index.ts) with regression coverage in [`src/domain/poker/index.test.ts`](src/domain/poker/index.test.ts).
+- **Closed by:** Auto-runout now waits until the only covering player has completed the current betting round, incomplete all-in raises no longer reopen raising to prior actors, and straddled hands use the straddle size as the preflop minimum raise increment.
+- **Validation:** `npm test`, `npm run typecheck`, `npm run lint`, and `npm run format`.
+
+### 2026-04-27: Complete M1 NLHE rule engine
+
+- **Result:** Completed in [`src/domain/poker/index.ts`](src/domain/poker/index.ts) with coverage in [`src/domain/poker/index.test.ts`](src/domain/poker/index.test.ts).
+- **Closed by:** Implemented a pure TypeScript NLHE cash-game state machine for 4-12 players, deterministic dealing, legal actions, action rotation, street advancement, append-only events, all-in runouts, showdown evaluation via `poker-evaluator`, and main/side pot awards.
+- **Validation:** `npm test`, `npm run typecheck`, `npm run lint`, `npm run format`, and `npm audit --audit-level=moderate`.
+
 ### 2026-04-27: Resolve training milestone type review finding
 
 - **Result:** Completed in [`src/domain/training/index.ts`](src/domain/training/index.ts).

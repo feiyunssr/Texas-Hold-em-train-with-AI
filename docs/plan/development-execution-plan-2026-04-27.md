@@ -154,6 +154,8 @@ Codex 任务：
 
 目标：应用自身可靠执行无限注德州扑克现金局规则，不依赖 AI 判断合法性。
 
+状态：**COMPLETED 2026-04-27**
+
 Codex 任务：
 
 1. 定义核心类型：牌、牌堆、座位、筹码、盲注、ante、straddle、街道、行动、底池、手牌状态。
@@ -169,6 +171,21 @@ Codex 任务：
 - 覆盖翻前到河牌的完整手牌测试。
 - 覆盖弃牌结束、all-in、边池、多人摊牌、4 人桌和 12 人桌。
 - 同一初始状态与事件序列重复运行结果一致。
+
+完成记录：
+
+- 已将 `src/domain/poker` 从 M0 harness 扩展为纯 TypeScript NLHE 规则引擎，提供 `createHand`、`getLegalActions`、`applyAction`、`playUntilTerminal`、`buildPots` 和 `evaluateShowdown` 公共入口。
+- 已实现 4-12 人现金局初始化、确定性 seed 洗牌、可注入测试牌堆、button/blind/ante/straddle 强制下注、行动轮转、街道推进、合法动作生成、all-in 自动跑牌、主池/边池结算和 append-only hand event log。
+- 已接入 `poker-evaluator` 作为摊牌评估 wrapper，第三方库类型不泄漏到规则引擎公共 API。
+- 已更新 `CURRENT_TRAINING_MILESTONE` 为 `M1`。
+- 验证命令：`npm test`、`npm run typecheck`、`npm run lint`、`npm run format`、`npm audit --audit-level=moderate`。
+
+复查修复记录：
+
+- 已修复只剩一个覆盖玩家仍可行动时错误继续下注的问题：仅在该玩家已完成当前下注轮后自动跑牌到摊牌。
+- 已修复未足额 all-in raise 错误重开 prior actors 加注权的问题。
+- 已修复 straddle 局翻前最小加注仍按 big blind 计算的问题，改为按当前 straddle/open bet 尺寸计算。
+- 回归验证命令：`npm test`、`npm run typecheck`、`npm run lint`、`npm run format`。
 
 ## M2：训练资产与持久化
 
