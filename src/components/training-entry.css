@@ -1,0 +1,117 @@
+.trainingEntry {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: var(--space-8);
+  min-height: 100vh;
+  padding: var(--space-8);
+  align-items: center;
+}
+
+.tablePreview {
+  display: grid;
+  place-items: center;
+  min-height: 520px;
+}
+
+.tableRail {
+  display: grid;
+  place-items: center;
+  gap: var(--space-4);
+  width: min(100%, 760px);
+  aspect-ratio: 1.8;
+  border: 18px solid var(--color-table-rail);
+  border-radius: 999px;
+  background: var(--color-table-felt);
+  color: var(--color-text-inverse);
+}
+
+.communityCards {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.communityCards span {
+  display: grid;
+  place-items: center;
+  width: 54px;
+  height: 76px;
+  border-radius: var(--radius-control);
+  background: var(--color-surface-panel);
+  color: var(--color-text-primary);
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.potLabel {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-control);
+  background: rgb(23 56 43 / 70%);
+  font-size: 16px;
+  line-height: 20px;
+}
+
+.entryPanel {
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-panel);
+  background: var(--color-surface-panel);
+  padding: var(--space-6);
+}
+
+.eyebrow {
+  margin: 0 0 var(--space-2);
+  color: var(--color-coach-accent);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 16px;
+}
+
+.entryPanel h1 {
+  margin: 0;
+  font-size: 22px;
+  line-height: 30px;
+}
+
+.summary {
+  margin: var(--space-3) 0 var(--space-6);
+  color: var(--color-text-secondary);
+  font-size: 16px;
+  line-height: 24px;
+}
+
+.configList {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+}
+
+.configList div {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
+  border-top: 1px solid var(--color-border-default);
+  padding-top: var(--space-3);
+}
+
+.configList dt {
+  color: var(--color-text-secondary);
+}
+
+.configList dd {
+  margin: 0;
+  font-weight: 700;
+}
+
+@media (max-width: 840px) {
+  .trainingEntry {
+    grid-template-columns: 1fr;
+    padding: var(--space-4);
+  }
+
+  .tablePreview {
+    min-height: 300px;
+  }
+
+  .entryPanel {
+    padding: var(--space-4);
+  }
+}

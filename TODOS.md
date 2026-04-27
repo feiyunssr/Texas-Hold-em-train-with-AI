@@ -6,6 +6,18 @@ No open documentation TODOs.
 
 ## Completed
 
+### 2026-04-27: Resolve training milestone type review finding
+
+- **Result:** Completed in [`src/domain/training/index.ts`](src/domain/training/index.ts).
+- **Closed by:** Extended `TrainingMilestone` to include the documented M6 review/history/replay phase and M7 QA/release-readiness phase while keeping `CURRENT_TRAINING_MILESTONE` at M0.
+- **Validation:** `npm run typecheck` and `npm test`.
+
+### 2026-04-27: Complete M0 engineering skeleton
+
+- **Result:** Completed in the Next.js + TypeScript project skeleton rooted at [`src/`](src/) with scripts in [`package.json`](package.json).
+- **Closed by:** Added npm lockfile, App Router entry, health route, AI coach env config reader, domain/server/AI/component/style boundaries, independent `src/domain/poker` Vitest harness and README runbook.
+- **Validation:** `npm run typecheck`, `npm test`, `npm run lint`, `npm run format`, `npm audit --audit-level=moderate`, `/health` curl check and homepage content check all passed.
+
 ### 2026-04-27: Resolve execution plan review findings before implementation
 
 - **Result:** Completed in [`docs/plan/development-execution-plan-2026-04-27.md`](docs/plan/development-execution-plan-2026-04-27.md).

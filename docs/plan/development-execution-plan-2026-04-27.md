@@ -112,6 +112,8 @@ v1 默认采用 `SSE + POST 控制面`：
 
 目标：创建可运行、可测试、可迭代的项目基础，并给规则引擎优先开发提供独立 harness。
 
+状态：**COMPLETED 2026-04-27**
+
 Codex 任务：
 
 1. 初始化 Next.js App Router + TypeScript 应用和包管理配置。
@@ -136,6 +138,17 @@ Codex 任务：
 - `npm run lint` 或等价 lint 命令通过。
 - 本地开发服务器可启动并打开第一屏。
 - README 包含启动、测试和环境变量说明。
+
+完成记录：
+
+- 已初始化 Next.js App Router + TypeScript + npm 工程，依赖版本写入 `package-lock.json`。
+- 已建立 `src/domain/poker`、`src/domain/training`、`src/server`、`src/ai`、`src/app`、`src/components`、`src/styles` 目录边界。
+- 已配置 `dev`、`build`、`typecheck`、`test`、`test:watch`、`lint`、`format` 和 `format:write` 脚本。
+- 已实现 `AI_COACH_REQUEST_TIMEOUT_MS`、`AI_COACH_RETRY_ATTEMPTS`、`AI_COACH_RETRY_BACKOFF_MS` 读取与默认值。
+- 已新增首页训练入口占位页和 `/health` 健康检查，不包含牌桌业务流程。
+- 已新增 `src/domain/poker/index.test.ts`，证明 poker domain 测试入口可独立运行。
+- 已更新 README 的安装、启动、测试和 `.env` 配置说明。
+- 验证命令：`npm run typecheck`、`npm test`、`npm run lint`、`npm run format`、`npm audit --audit-level=moderate`、`curl http://127.0.0.1:3000/health`、首页 HTML 内容检查。
 
 ## M1：规则引擎
 
@@ -424,4 +437,4 @@ Codex 任务：
 
 ## 执行偏差记录
 
-当前暂无偏差。后续如果实际技术栈、目录结构或里程碑顺序发生变化，Codex 应在提交对应代码后同步更新本节。
+当前暂无偏差。M0 按推荐技术路线采用 Next.js App Router、TypeScript、独立 `src/domain`、Vitest、ESLint 和 Prettier；后续如果实际技术栈、目录结构或里程碑顺序发生变化，Codex 应在提交对应代码后同步更新本节。

@@ -1,0 +1,28 @@
+:root {
+  --color-table-felt: #0f5132;
+  --color-table-rail: #17382b;
+  --color-surface-base: #f7f8f6;
+  --color-surface-panel: #ffffff;
+  --color-surface-subtle: #eef1ed;
+  --color-text-primary: #17201b;
+  --color-text-secondary: #5c675f;
+  --color-text-inverse: #f8faf7;
+  --color-border-default: #d7ddd5;
+  --color-action-primary: #d97706;
+  --color-action-primary-hover: #b45309;
+  --color-coach-accent: #2563eb;
+  --color-success: #15803d;
+  --color-warning: #b45309;
+  --color-danger: #b91c1c;
+  --color-info: #2563eb;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  --radius-control: 6px;
+  --radius-panel: 8px;
+}
