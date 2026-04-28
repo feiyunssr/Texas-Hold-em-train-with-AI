@@ -13,6 +13,7 @@ export function getServiceHealth(): ServiceHealth {
 export { getPrisma } from "./db";
 export { PrismaTrainingAssetRepository } from "./persistence/prisma-training-assets";
 export { TrainingAssetService } from "./persistence/training-assets";
+export { HeroCoachService } from "./hero-coach";
 export {
   getTrainingTableRuntime,
   TrainingRuntimeError,
@@ -33,6 +34,7 @@ export type {
 export type {
   BotSeatView,
   BotStyle,
+  HeroCoachView,
   PublicHandState,
   RuntimePublicEvent,
   TrainingTableSnapshot

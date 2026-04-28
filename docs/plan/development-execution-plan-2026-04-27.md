@@ -284,6 +284,8 @@ Codex 任务：
 
 目标：把 v1 第一主航道做成可靠、可计费、可审计的闭环。
 
+状态：**COMPLETED 2026-04-28**
+
 Codex 任务：
 
 1. 实现 `hero-coach-view`，只包含真人用户当前决策点可见信息：
@@ -324,6 +326,19 @@ Codex 任务：
 - 请求期间当前用户决策点冻结，不能重复提交建议请求。
 - timeout、provider error、parse/schema failure、partial output、storage failure、duplicate request 均有测试覆盖。
 - `wallet_ledger` 写入失败时不能留下已扣点状态。
+
+完成记录：
+
+- 已新增 `hero-coach-view`，在 Hero 当前决策点只暴露牌桌配置、座位/位置、筹码与有效筹码、公共牌、Hero 底牌、当前决策前下注历史、底池和规则引擎合法动作。
+- 已为当前决策点生成稳定 `decisionPointId`，并在建议请求期间锁定该决策点，阻止重复建议请求和同时提交用户动作。
+- 已新增 `src/ai/hero-coach.ts`，提供 provider adapter、mock provider、`hero-coach-v1` prompt version、结构化输出 schema 校验、超时和重试执行器。
+- 已新增 `src/server/hero-coach` 编排服务，按 `request_id -> decision_snapshot -> ai_artifact -> wallet_ledger` 串联成功路径。
+- 已实现同一 `decisionPointId` 一次正式请求限制，重复正式请求返回既有状态；同一 `requestId` 重试可回读已提交的收费结果。
+- 已实现 `saved_charged`、`failed_not_charged`、`partial_not_final` 和 `already_requested` 返回语义；timeout、provider error、schema failure、storage failure、非法扣点金额和 partial 输出均不写入扣费流水。
+- 已新增 `POST /api/training/tables/:tableId/coach`，请求体要求 `requestId`、`userId`、`walletAccountId` 和正整数 `chargeAmount`。
+- Review follow-up: coach API 会先把运行时 `table_config`、`table_seat_profile` 和 `hand` 持久化，再保存 Prisma coach artifacts；未产生 artifact 的失败会释放决策点锁；同一 `requestId` 的成功重试保持 advice 响应形状一致；provider 建议金额会按当前合法动作的 exact/min/max 约束校验。
+- 已更新 `CURRENT_TRAINING_MILESTONE` 为 `M4`。
+- 验证命令：`npm test -- src/server/hero-coach/index.test.ts src/server/training-runtime/index.test.ts`、`npm test -- src/server/hero-coach/index.test.ts src/ai/hero-coach.test.ts`、`npm run typecheck`、`npm test`、`npm run lint`、`npm run format`、`npm run build`。
 
 ## M5：v1 UI 主航道
 

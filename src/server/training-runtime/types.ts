@@ -138,6 +138,53 @@ export type BotSeatView = {
   }>;
 };
 
+export type HeroCoachView = {
+  tableId: string;
+  handId: string;
+  decisionPointId: string;
+  actingSeatIndex: number;
+  tableConfig: TrainingTableConfig;
+  street: Street;
+  board: CardCode[];
+  heroHoleCards: CardCode[];
+  potTotal: number;
+  pots: Pot[];
+  currentBet: number;
+  eventSequence: number;
+  legalActions: LegalAction[];
+  seats: Array<{
+    seatIndex: number;
+    playerId: string;
+    displayName: string;
+    isHero: boolean;
+    style: BotStyle | "hero";
+    stack: number;
+    effectiveStackAgainstHero: number;
+    status: SeatStatus;
+    streetCommitment: number;
+    totalCommitment: number;
+    position: "button" | "small_blind" | "big_blind" | "other";
+  }>;
+  bettingHistory: Array<{
+    sequence: number;
+    street: Street;
+    seatIndex: number;
+    action: ActionType;
+    amount: number;
+    totalBetTo: number;
+  }>;
+};
+
+export type BeginHeroCoachRequestResult =
+  | {
+      status: "locked";
+      view: HeroCoachView;
+    }
+  | {
+      status: "already_requested";
+      view: HeroCoachView;
+    };
+
 export type TrainingRuntimeEvent =
   | {
       type: "created";

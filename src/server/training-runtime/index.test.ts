@@ -49,6 +49,26 @@ describe("training table runtime", () => {
     expect(view.legalActions).toEqual([]);
   });
 
+  it("builds a hero-coach-view with only the user's current decision context", () => {
+    const runtime = new TrainingTableRuntime();
+    const { snapshot } = runtime.createTable(baseCreateInput(6));
+    const view = runtime.getHeroCoachView(snapshot.tableId);
+
+    expect(view.tableId).toBe(snapshot.tableId);
+    expect(view.handId).toBe(snapshot.hand.handId);
+    expect(view.decisionPointId).toContain(":seat-0:");
+    expect(view.heroHoleCards).toHaveLength(2);
+    expect(view.board).toEqual(snapshot.hand.board);
+    expect(view.legalActions).toEqual(snapshot.hand.legalActions);
+    expect(view.seats).toHaveLength(6);
+    expect(
+      view.seats.every((seat) => "effectiveStackAgainstHero" in seat)
+    ).toBe(true);
+    expect(
+      view.bettingHistory.every((event) => event.sequence <= view.eventSequence)
+    ).toBe(true);
+  });
+
   it("accepts a legal user action, appends public events, and keeps the hand moving", () => {
     const runtime = new TrainingTableRuntime();
     const created = runtime.createTable(baseCreateInput(4));

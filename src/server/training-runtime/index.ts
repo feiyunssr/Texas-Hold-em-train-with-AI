@@ -11,8 +11,10 @@ import {
 } from "@/domain/poker";
 
 import type {
+  BeginHeroCoachRequestResult,
   BotSeatView,
   BotStyle,
+  HeroCoachView,
   PublicHandState,
   RuntimePublicEvent,
   RuntimeSeatProfile,
@@ -30,6 +32,7 @@ export class TrainingRuntimeError extends Error {
       | "invalid_config"
       | "table_not_found"
       | "not_waiting_for_user"
+      | "decision_point_locked"
       | "illegal_action"
       | "hand_not_complete",
     message: string
@@ -49,6 +52,7 @@ type RuntimeSession = {
   status: TrainingTableStatus;
   seedBase: string;
   publicEvents: RuntimePublicEvent[];
+  heroCoachRequests: Map<string, "requesting" | "completed">;
   nextRuntimeSequence: number;
   createdAt: Date;
   updatedAt: Date;
@@ -87,6 +91,7 @@ export class TrainingTableRuntime {
       status: "bot_acting",
       seedBase,
       publicEvents: [],
+      heroCoachRequests: new Map(),
       nextRuntimeSequence: 1,
       createdAt: now,
       updatedAt: now
@@ -143,6 +148,81 @@ export class TrainingTableRuntime {
     return buildBotSeatView(session, seatIndex);
   }
 
+  getHeroCoachView(tableId: string): HeroCoachView {
+    const session = this.requireSession(tableId);
+
+    if (
+      session.status !== "waiting_for_user" ||
+      session.hand.currentActorSeat !== session.config.heroSeatIndex
+    ) {
+      throw new TrainingRuntimeError(
+        "not_waiting_for_user",
+        "Hero coach view can only be built at the user's current decision point."
+      );
+    }
+
+    return buildHeroCoachView(session);
+  }
+
+  beginHeroCoachRequest(tableId: string): BeginHeroCoachRequestResult {
+    let session = this.requireSession(tableId);
+    const view = this.getHeroCoachView(tableId);
+    const existingStatus = session.heroCoachRequests.get(view.decisionPointId);
+
+    if (existingStatus) {
+      return {
+        status: "already_requested",
+        view
+      };
+    }
+
+    const heroCoachRequests = new Map(session.heroCoachRequests);
+    heroCoachRequests.set(view.decisionPointId, "requesting");
+    session = {
+      ...session,
+      heroCoachRequests,
+      updatedAt: new Date()
+    };
+    this.sessions.set(tableId, session);
+
+    return {
+      status: "locked",
+      view
+    };
+  }
+
+  completeHeroCoachRequest(tableId: string, decisionPointId: string): void {
+    const session = this.requireSession(tableId);
+
+    if (!session.heroCoachRequests.has(decisionPointId)) {
+      return;
+    }
+
+    const heroCoachRequests = new Map(session.heroCoachRequests);
+    heroCoachRequests.set(decisionPointId, "completed");
+    this.sessions.set(tableId, {
+      ...session,
+      heroCoachRequests,
+      updatedAt: new Date()
+    });
+  }
+
+  releaseHeroCoachRequest(tableId: string, decisionPointId: string): void {
+    const session = this.requireSession(tableId);
+
+    if (session.heroCoachRequests.get(decisionPointId) !== "requesting") {
+      return;
+    }
+
+    const heroCoachRequests = new Map(session.heroCoachRequests);
+    heroCoachRequests.delete(decisionPointId);
+    this.sessions.set(tableId, {
+      ...session,
+      heroCoachRequests,
+      updatedAt: new Date()
+    });
+  }
+
   submitUserAction(
     tableId: string,
     input: SubmitUserActionInput
@@ -168,6 +248,29 @@ export class TrainingTableRuntime {
         snapshot,
         event,
         error: "It is not currently the user seat's turn."
+      };
+    }
+
+    const currentDecisionPointId = buildDecisionPointId(session);
+    if (
+      session.heroCoachRequests.get(currentDecisionPointId) === "requesting"
+    ) {
+      const rejected = appendRuntimeEvent(session, "user_action_rejected", {
+        reason: "decision_point_locked",
+        requestedAction: input.type,
+        decisionPointId: currentDecisionPointId
+      });
+      this.sessions.set(tableId, rejected);
+      const snapshot = buildTableSnapshot(rejected);
+      const event = rejected.publicEvents[rejected.publicEvents.length - 1];
+      this.publish(rejected, event, snapshot);
+
+      return {
+        type: "rejected",
+        snapshot,
+        event,
+        error:
+          "The current decision point is locked while AI coach advice is pending."
       };
     }
 
@@ -244,6 +347,7 @@ export class TrainingTableRuntime {
       config: nextConfig,
       hand,
       status: "bot_acting",
+      heroCoachRequests: new Map(),
       updatedAt: new Date()
     };
     session = appendRuntimeEvent(session, "hand_started", {
@@ -435,6 +539,70 @@ export function buildBotSeatView(
   };
 }
 
+export function buildHeroCoachView(session: RuntimeSession): HeroCoachView {
+  const heroSeatIndex = session.config.heroSeatIndex;
+  const heroSeat = session.hand.seats[heroSeatIndex];
+  const legalActions =
+    session.hand.currentActorSeat === heroSeatIndex
+      ? getLegalActions(session.hand)
+      : [];
+  const streetBySequence = new Map<number, typeof session.hand.street>();
+  let currentStreet: typeof session.hand.street = "preflop";
+
+  for (const event of session.hand.events) {
+    if (event.type === "street_advanced") {
+      currentStreet = event.payload.street;
+    }
+
+    streetBySequence.set(event.sequence, currentStreet);
+  }
+
+  return {
+    tableId: session.tableId,
+    handId: session.handId,
+    decisionPointId: buildDecisionPointId(session),
+    actingSeatIndex: heroSeatIndex,
+    tableConfig: session.config,
+    street: session.hand.street,
+    board: session.hand.board,
+    heroHoleCards: heroSeat.holeCards,
+    potTotal: calculatePotTotal(session.hand),
+    pots: session.hand.pots,
+    currentBet: session.hand.currentBet,
+    eventSequence: getLastHandEventSequence(session),
+    legalActions,
+    seats: session.hand.seats.map((seat) => {
+      const profile = session.seatProfiles[seat.seatIndex];
+      return {
+        seatIndex: seat.seatIndex,
+        playerId: profile.playerId,
+        displayName: profile.displayName,
+        isHero: profile.isHero,
+        style: profile.style,
+        stack: seat.stack,
+        effectiveStackAgainstHero: Math.min(heroSeat.stack, seat.stack),
+        status: seat.status,
+        streetCommitment: seat.streetCommitment,
+        totalCommitment: seat.totalCommitment,
+        position: getSeatPosition(session.hand, seat.seatIndex)
+      };
+    }),
+    bettingHistory: session.hand.events
+      .filter(
+        (event): event is Extract<HandEvent, { type: "player_action" }> =>
+          event.type === "player_action"
+      )
+      .map((event) => ({
+        sequence: event.sequence,
+        street: streetBySequence.get(event.sequence) ?? "preflop",
+        seatIndex: event.payload.seatIndex,
+        action: event.payload.action,
+        amount: event.payload.amount,
+        totalBetTo: event.payload.totalBetTo
+      }))
+  };
+}
+
 export function buildTableSnapshot(
   session: RuntimeSession
 ): TrainingTableSnapshot {
@@ -446,6 +614,38 @@ export function buildTableSnapshot(
     createdAt: session.createdAt.toISOString(),
     updatedAt: session.updatedAt.toISOString()
   };
+}
+
+function buildDecisionPointId(session: RuntimeSession): string {
+  return [
+    session.handId,
+    session.hand.street,
+    `seat-${session.config.heroSeatIndex}`,
+    `event-${getLastHandEventSequence(session)}`
+  ].join(":");
+}
+
+function getLastHandEventSequence(session: RuntimeSession): number {
+  return session.hand.events[session.hand.events.length - 1]?.sequence ?? 0;
+}
+
+function getSeatPosition(
+  hand: HandState,
+  seatIndex: number
+): "button" | "small_blind" | "big_blind" | "other" {
+  if (seatIndex === hand.buttonSeat) {
+    return "button";
+  }
+
+  if (seatIndex === hand.smallBlindSeat) {
+    return "small_blind";
+  }
+
+  if (seatIndex === hand.bigBlindSeat) {
+    return "big_blind";
+  }
+
+  return "other";
 }
 
 export function getTrainingTableRuntime(): TrainingTableRuntime {

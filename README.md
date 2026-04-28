@@ -96,3 +96,14 @@ M0 已建立 Next.js App Router + TypeScript 单体仓库基础：
   - `GET /api/training/tables/:tableId/events` 提供 SSE stream，并在订阅时先推送当前 snapshot；重连回放优先使用浏览器 `Last-Event-ID`，再回退到 `?after=`。
 - 对外暴露的 `tableId` 使用 crypto-random ID，避免递增 ID 被猜测后读取或操作其他训练桌。
 - AI 对手只能通过 `bot-seat-view` 获取该座位理论可见信息；public snapshot 在手牌完成前隐藏非 Hero 底牌。
+
+## 行动前 AI 教练建议
+
+当前 M4 已建立行动前 AI 教练服务闭环：
+
+- `src/server/training-runtime` 可在 Hero 当前决策点生成 `hero-coach-view`，只包含牌桌配置、座位/位置、筹码与有效筹码、公共牌、Hero 底牌、当前决策前下注历史、底池和合法动作。
+- `src/server/hero-coach` 编排一次正式建议请求：保存 `decision_snapshot`，调用 provider adapter，校验结构化输出，并把成功结果通过 `ai_artifact + wallet_ledger` 同事务扣点持久化；未写入任何 artifact 的失败会释放运行时锁，允许同一决策点修正后重试。
+- `src/ai/hero-coach` 提供 mock provider、`hero-coach-v1` prompt version、结构化 schema 校验、合法动作金额校验、超时和重试执行器。
+- `POST /api/training/tables/:tableId/coach` 请求一次行动前建议，请求体必须包含 `requestId`、`userId`、`walletAccountId` 和正整数 `chargeAmount`；运行时训练桌会先补齐 Prisma `table_config`、`table_seat_profile` 和 `hand` 后再保存教练资产。
+- 同一 `decisionPointId` 在运行时只允许一次正式请求；请求处理中会锁定当前决策点，防止重复请求或同时提交用户动作。
+- 成功结果返回 `saved_charged`，同一 `requestId` 重试返回相同 advice 形状；timeout、provider error、schema failure、storage failure 和非法扣点金额返回 `failed_not_charged`；partial 输出返回 `partial_not_final` 且不写入账务流水。

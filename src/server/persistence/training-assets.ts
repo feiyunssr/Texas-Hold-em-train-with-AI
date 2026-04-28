@@ -61,6 +61,19 @@ export class TrainingAssetService {
     });
   }
 
+  findAIArtifactByRequestId(
+    requestId: string
+  ): ReturnType<TrainingAssetRepository["findAIArtifactByRequestId"]> {
+    return this.repository.findAIArtifactByRequestId(requestId);
+  }
+
+  findDecisionSnapshot(
+    handId: string,
+    decisionPointId: string
+  ): ReturnType<TrainingAssetRepository["findDecisionSnapshot"]> {
+    return this.repository.findDecisionSnapshot(handId, decisionPointId);
+  }
+
   async saveChargedAIArtifact(
     input: ChargedAIArtifactInput
   ): Promise<ChargedAIArtifactResult> {

@@ -6,6 +6,18 @@ No open documentation TODOs.
 
 ## Completed
 
+### 2026-04-28: Resolve M4 coach API review findings
+
+- **Result:** Completed in [`src/app/api/training/tables/[tableId]/coach`](src/app/api/training/tables/[tableId]/coach), [`src/server/hero-coach`](src/server/hero-coach), [`src/ai/hero-coach.ts`](src/ai/hero-coach.ts), and [`src/server/training-runtime`](src/server/training-runtime).
+- **Closed by:** Persisted runtime table/seat/hand rows before Prisma coach artifacts, released decision locks when no artifact was saved, normalized duplicate `requestId` advice replay shape, and validated suggested amounts against the matching legal action.
+- **Validation:** `npm test -- src/server/hero-coach/index.test.ts src/ai/hero-coach.test.ts` and `npm run typecheck`.
+
+### 2026-04-28: Complete M4 action-time AI coach advice
+
+- **Result:** Completed in [`src/server/hero-coach`](src/server/hero-coach), [`src/ai/hero-coach.ts`](src/ai/hero-coach.ts), [`src/server/training-runtime`](src/server/training-runtime), and [`src/app/api/training/tables/[tableId]/coach`](src/app/api/training/tables/[tableId]/coach).
+- **Closed by:** Added `hero-coach-view`, stable `decisionPointId`, decision-point request locking, provider adapter orchestration, timeout/retry handling, structured schema validation, one-formal-request enforcement, partial output handling, failed-not-charged persistence, and saved-charged wallet ledger linkage.
+- **Validation:** `npm test -- src/server/hero-coach/index.test.ts src/server/training-runtime/index.test.ts`, `npm run typecheck`, `npm test`, `npm run lint`, `npm run format`, and `npm run build`.
+
 ### 2026-04-28: Resolve M3 runtime API review findings
 
 - **Result:** Completed in [`src/server/training-runtime`](src/server/training-runtime) and [`src/app/api/training/tables/[tableId]/events`](src/app/api/training/tables/[tableId]/events).
