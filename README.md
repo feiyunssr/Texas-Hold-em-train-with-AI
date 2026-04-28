@@ -24,6 +24,7 @@
 - 打开首页：`http://localhost:3000`
 - 健康检查：`http://localhost:3000/health`
 - AI 教练建议的超时时间、自动重试次数和重试退避时间通过 `.env` 配置，变量名参考 [.env.example](.env.example)。
+- 训练资产持久化使用 PostgreSQL + Prisma，`DATABASE_URL` 也通过 `.env` 配置。
 
 本地 `.env` 示例：
 
@@ -31,6 +32,7 @@
 AI_COACH_REQUEST_TIMEOUT_MS=2500
 AI_COACH_RETRY_ATTEMPTS=2
 AI_COACH_RETRY_BACKOFF_MS=300
+DATABASE_URL="postgresql://postgres:postgres@localhost:5432/texas_holdem_train?schema=public"
 ```
 
 未设置这些变量时，应用会使用与 `.env.example` 一致的默认值。
@@ -43,6 +45,10 @@ AI_COACH_RETRY_BACKOFF_MS=300
 - Lint：`npm run lint`
 - 格式检查：`npm run format`
 - 格式化源码与配置：`npm run format:write`
+- 生成 Prisma client：`npm run db:generate`
+- 格式化 Prisma schema：`npm run db:format`
+- 执行 Prisma 迁移：`npm run db:migrate`
+- 写入 demo user、wallet account 和基础标签：`npm run db:seed`
 
 ## 当前范围
 
@@ -56,7 +62,7 @@ AI_COACH_RETRY_BACKOFF_MS=300
 
 ## 工程骨架
 
-当前 M0 已建立 Next.js App Router + TypeScript 单体仓库基础：
+M0 已建立 Next.js App Router + TypeScript 单体仓库基础：
 
 - 前端入口：`src/app`
 - 规则引擎边界：`src/domain/poker`
@@ -65,4 +71,13 @@ AI_COACH_RETRY_BACKOFF_MS=300
 - AI 编排边界：`src/ai`
 - 组件与样式：`src/components`、`src/styles`
 
-`src/domain/poker` 已有 Vitest harness，用于保证后续 M1 规则引擎可以脱离 Next.js、数据库、AI 和 UI 独立验证。
+`src/domain/poker` 已实现可独立验证的 NLHE 规则引擎，不依赖 Next.js、数据库、AI 或 UI。
+
+## 训练资产持久化
+
+当前 M2 已建立 PostgreSQL 持久化基础：
+
+- Prisma schema 和初始迁移位于 `prisma/`，覆盖 `app_user`、`wallet_account`、`table_config`、`table_seat_profile`、`hand`、`hand_event_log`、`decision_snapshot`、`ai_artifact`、`label_definition`、`label_assignment` 和 `wallet_ledger`。
+- 所有长期结构化对象带 `schema_version`，并建立 `hand_event_log(hand_id, sequence)`、`decision_snapshot(hand_id, decision_point_id)`、`ai_artifact(request_id)`、`wallet_ledger(request_id)` 唯一约束。
+- `src/server/persistence` 提供事件追加、决策快照、AI artifact、同事务扣点账务和 read model 查询服务。
+- 收费类 AI artifact 与 `wallet_ledger` 在同一事务内写入；扣点使用条件原子扣减，`request_id` 并发重试返回已提交结果，事务失败会返回未扣点状态。

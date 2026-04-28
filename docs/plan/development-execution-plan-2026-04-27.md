@@ -191,6 +191,8 @@ Codex 任务：
 
 目标：把每手牌沉淀为长期训练资产，并为复盘、历史、统计和计费对账保留结构化基础。
 
+状态：**COMPLETED 2026-04-28**
+
 Codex 任务：
 
 1. 建立数据模型：
@@ -223,6 +225,18 @@ Codex 任务：
 - 重复提交同一 `request_id` 不会重复扣点。
 - demo user 的点数流水能通过 `wallet_account` 归属和查询。
 - 模拟 AI 产物写入成功但账务写入失败时，接口返回未扣点状态，数据库不留下已扣点假象。
+
+完成记录：
+
+- 已引入 Prisma 7 + PostgreSQL driver adapter，新增 `prisma.config.ts`、`prisma/schema.prisma` 和初始迁移。
+- 已建立 `app_user`、`wallet_account`、`table_config`、`table_seat_profile`、`hand`、`hand_event_log`、`decision_snapshot`、`ai_artifact`、`label_definition`、`label_assignment` 和 `wallet_ledger` 模型。
+- 已为长期结构化对象保留 `schema_version`，并建立 `hand_event_log(hand_id, sequence)`、`decision_snapshot(hand_id, decision_point_id)`、`ai_artifact(request_id)`、`wallet_ledger(request_id)` 唯一约束。
+- 已实现 `src/server/persistence` 服务边界，支持事件追加、决策快照保存、AI artifact 保存、同事务收费写入、历史列表、单手时间线、决策点审计链和钱包流水查询。
+- 已新增 Prisma seed，创建固定 demo user、wallet account、初始点数流水和基础标签定义。
+- 已更新 `CURRENT_TRAINING_MILESTONE` 为 `M2`。
+- 验证命令：`npm run db:generate`、`npm run db:format`、`npx prisma validate`、`npm test`、`npm run typecheck`、`npm run lint`、`npm run format`、`npm run build`。
+- 本地未执行 `npm run db:migrate`，因为当前环境未提供可连接的 PostgreSQL 实例；迁移 SQL 已生成并随仓库保存。
+- `npm audit --audit-level=moderate` 当前失败于 Prisma 7.8.0 dev 依赖链中的 `@hono/node-server` moderate advisory；`npm audit fix --force` 会降级到 Prisma 6.19.3，属于破坏性修复，未自动执行。
 
 ## M3：单桌训练运行时
 
@@ -281,7 +295,7 @@ Codex 任务：
    - 最多 3 条关键判断因素
    - 风险或不确定性说明
 6. AI 输出必须先通过 schema 校验，再进入持久化和扣费事务。
-7. AI 输出成功持久化后，在同一事务内写入 `wallet_ledger`，事务提交后再返回已扣点状态。
+7. AI 输出成功持久化后，在同一事务内通过条件原子扣减钱包余额并写入 `wallet_ledger`，事务提交后再返回已扣点状态；并发 `request_id` 重试必须回读已提交的收费结果。
 8. partial 输出在 v1 视为未完成正式结果：可展示已返回字段和 `partial_not_final`，但不写入收费流水。
 9. 最终失败仍消耗该决策点的一次正式请求；前端展示 `failed_not_charged` 或 `already_requested`，不允许再次正式请求。
 
@@ -290,6 +304,7 @@ Codex 任务：
 - 同一决策点重复请求只返回已有状态或拒绝第二次正式请求。
 - 成功路径能串起 `request_id -> decision_snapshot -> ai_artifact -> wallet_ledger`。
 - 任一失败路径明确返回未扣点状态。
+- 非正数或非整数扣点金额必须在持久化前拒绝。
 - 请求期间当前用户决策点冻结，不能重复提交建议请求。
 - timeout、provider error、parse/schema failure、partial output、storage failure、duplicate request 均有测试覆盖。
 - `wallet_ledger` 写入失败时不能留下已扣点状态。

@@ -1,0 +1,252 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum HandStatus {
+  STARTED
+  COMPLETED
+  ABANDONED
+}
+
+enum AIArtifactKind {
+  BOT_ACTION
+  HERO_COACH
+  HAND_REVIEW
+  HISTORY_DIAGNOSIS
+}
+
+enum AIArtifactStatus {
+  SAVED_CHARGED
+  FAILED_NOT_CHARGED
+  PENDING_PERSISTENCE
+  PARTIAL_NOT_FINAL
+}
+
+enum WalletLedgerEntryType {
+  CREDIT_GRANT
+  AI_CHARGE
+  ADJUSTMENT
+  REVERSAL
+}
+
+enum LabelAssignmentSource {
+  AI
+  USER
+  SYSTEM
+}
+
+model AppUser {
+  id            String         @id @default(cuid())
+  email         String?        @unique
+  displayName   String?        @map("display_name")
+  schemaVersion Int            @default(1) @map("schema_version")
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
+  hands         Hand[]
+  tableConfigs  TableConfig[]
+  walletAccount WalletAccount?
+  walletLedgers WalletLedger[]
+
+  @@map("app_user")
+}
+
+model WalletAccount {
+  id            String         @id @default(cuid())
+  userId        String         @unique @map("user_id")
+  balance       Int            @default(0)
+  schemaVersion Int            @default(1) @map("schema_version")
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
+  user          AppUser        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  walletLedgers WalletLedger[]
+
+  @@map("wallet_account")
+}
+
+model TableConfig {
+  id             String             @id @default(cuid())
+  userId         String?            @map("user_id")
+  playerCount    Int                @map("player_count")
+  startingStack  Int                @map("starting_stack")
+  smallBlind     Int                @map("small_blind")
+  bigBlind       Int                @map("big_blind")
+  ante           Int                @default(0)
+  buttonSeat     Int                @default(0) @map("button_seat")
+  straddleSeat   Int?               @map("straddle_seat")
+  straddleAmount Int?               @map("straddle_amount")
+  seed           String?
+  configPayload  Json               @map("config_payload")
+  schemaVersion  Int                @default(1) @map("schema_version")
+  createdAt      DateTime           @default(now()) @map("created_at")
+  user           AppUser?           @relation(fields: [userId], references: [id], onDelete: SetNull)
+  hands          Hand[]
+  seatProfiles   TableSeatProfile[]
+
+  @@map("table_config")
+}
+
+model TableSeatProfile {
+  id            String      @id @default(cuid())
+  tableConfigId String      @map("table_config_id")
+  seatIndex     Int         @map("seat_index")
+  playerId      String      @map("player_id")
+  displayName   String?     @map("display_name")
+  isHero        Boolean     @default(false) @map("is_hero")
+  startingStack Int         @map("starting_stack")
+  styleProfile  Json?       @map("style_profile")
+  schemaVersion Int         @default(1) @map("schema_version")
+  createdAt     DateTime    @default(now()) @map("created_at")
+  tableConfig   TableConfig @relation(fields: [tableConfigId], references: [id], onDelete: Cascade)
+
+  @@unique([tableConfigId, seatIndex])
+  @@map("table_seat_profile")
+}
+
+model Hand {
+  id                String             @id @default(cuid())
+  tableConfigId     String             @map("table_config_id")
+  userId            String?            @map("user_id")
+  status            HandStatus         @default(STARTED)
+  seed              String
+  buttonSeat        Int                @map("button_seat")
+  smallBlindSeat    Int                @map("small_blind_seat")
+  bigBlindSeat      Int                @map("big_blind_seat")
+  heroSeatIndex     Int?               @map("hero_seat_index")
+  startedAt         DateTime           @default(now()) @map("started_at")
+  completedAt       DateTime?          @map("completed_at")
+  completionReason  String?            @map("completion_reason")
+  finalStatePayload Json?              @map("final_state_payload")
+  schemaVersion     Int                @default(1) @map("schema_version")
+  aiArtifacts       AIArtifact[]
+  decisionSnapshots DecisionSnapshot[]
+  eventLogs         HandEventLog[]
+  labelAssignments  LabelAssignment[]
+  tableConfig       TableConfig        @relation(fields: [tableConfigId], references: [id], onDelete: Restrict)
+  user              AppUser?           @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([startedAt])
+  @@index([userId, startedAt])
+  @@map("hand")
+}
+
+model HandEventLog {
+  id            String   @id @default(cuid())
+  handId        String   @map("hand_id")
+  sequence      Int
+  eventType     String   @map("event_type")
+  payload       Json
+  schemaVersion Int      @default(1) @map("schema_version")
+  createdAt     DateTime @default(now()) @map("created_at")
+  hand          Hand     @relation(fields: [handId], references: [id], onDelete: Cascade)
+
+  @@unique([handId, sequence])
+  @@map("hand_event_log")
+}
+
+model DecisionSnapshot {
+  id               String            @id @default(cuid())
+  handId           String            @map("hand_id")
+  decisionPointId  String            @map("decision_point_id")
+  street           String
+  actingSeatIndex  Int               @map("acting_seat_index")
+  eventSequence    Int?              @map("event_sequence")
+  visibleState     Json              @map("visible_state")
+  legalActions     Json              @map("legal_actions")
+  schemaVersion    Int               @default(1) @map("schema_version")
+  createdAt        DateTime          @default(now()) @map("created_at")
+  aiArtifacts      AIArtifact[]
+  labelAssignments LabelAssignment[]
+  hand             Hand              @relation(fields: [handId], references: [id], onDelete: Cascade)
+
+  @@unique([handId, decisionPointId])
+  @@map("decision_snapshot")
+}
+
+model AIArtifact {
+  id                 String            @id @default(cuid())
+  requestId          String            @unique @map("request_id")
+  handId             String?           @map("hand_id")
+  decisionSnapshotId String?           @map("decision_snapshot_id")
+  decisionPointId    String?           @map("decision_point_id")
+  artifactKind       AIArtifactKind    @map("artifact_kind")
+  status             AIArtifactStatus
+  promptVersion      String            @map("prompt_version")
+  schemaVersion      Int               @default(1) @map("schema_version")
+  modelName          String            @map("model_name")
+  providerName       String            @map("provider_name")
+  requestPayload     Json              @map("request_payload")
+  responsePayload    Json?             @map("response_payload")
+  errorType          String?           @map("error_type")
+  errorMessage       String?           @map("error_message")
+  createdAt          DateTime          @default(now()) @map("created_at")
+  decisionSnapshot   DecisionSnapshot? @relation(fields: [decisionSnapshotId], references: [id], onDelete: SetNull)
+  hand               Hand?             @relation(fields: [handId], references: [id], onDelete: SetNull)
+  labelAssignments   LabelAssignment[]
+  walletLedgers      WalletLedger[]
+
+  @@index([handId, decisionPointId])
+  @@map("ai_artifact")
+}
+
+model LabelDefinition {
+  id               String            @id @default(cuid())
+  key              String
+  title            String
+  description      String?
+  version          Int               @default(1)
+  isActive         Boolean           @default(true) @map("is_active")
+  schemaVersion    Int               @default(1) @map("schema_version")
+  createdAt        DateTime          @default(now()) @map("created_at")
+  labelAssignments LabelAssignment[]
+
+  @@unique([key, version])
+  @@map("label_definition")
+}
+
+model LabelAssignment {
+  id                 String                @id @default(cuid())
+  handId             String                @map("hand_id")
+  labelDefinitionId  String                @map("label_definition_id")
+  decisionSnapshotId String?               @map("decision_snapshot_id")
+  aiArtifactId       String?               @map("ai_artifact_id")
+  source             LabelAssignmentSource
+  street             String?
+  decisionPointId    String?               @map("decision_point_id")
+  note               String?
+  metadata           Json?
+  schemaVersion      Int                   @default(1) @map("schema_version")
+  createdAt          DateTime              @default(now()) @map("created_at")
+  aiArtifact         AIArtifact?           @relation(fields: [aiArtifactId], references: [id], onDelete: SetNull)
+  decisionSnapshot   DecisionSnapshot?     @relation(fields: [decisionSnapshotId], references: [id], onDelete: SetNull)
+  hand               Hand                  @relation(fields: [handId], references: [id], onDelete: Cascade)
+  labelDefinition    LabelDefinition       @relation(fields: [labelDefinitionId], references: [id], onDelete: Restrict)
+
+  @@index([handId, decisionPointId])
+  @@map("label_assignment")
+}
+
+model WalletLedger {
+  id              String                @id @default(cuid())
+  requestId       String?               @unique @map("request_id")
+  userId          String                @map("user_id")
+  walletAccountId String                @map("wallet_account_id")
+  aiArtifactId    String?               @map("ai_artifact_id")
+  entryType       WalletLedgerEntryType @map("entry_type")
+  amountDelta     Int                   @map("amount_delta")
+  balanceAfter    Int                   @map("balance_after")
+  description     String?
+  metadata        Json?
+  schemaVersion   Int                   @default(1) @map("schema_version")
+  createdAt       DateTime              @default(now()) @map("created_at")
+  aiArtifact      AIArtifact?           @relation(fields: [aiArtifactId], references: [id], onDelete: SetNull)
+  user            AppUser               @relation(fields: [userId], references: [id], onDelete: Restrict)
+  walletAccount   WalletAccount         @relation(fields: [walletAccountId], references: [id], onDelete: Restrict)
+
+  @@index([userId, createdAt])
+  @@map("wallet_ledger")
+}

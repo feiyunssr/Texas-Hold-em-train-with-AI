@@ -7,15 +7,23 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "postinstall": "prisma generate",
+    "db:generate": "prisma generate",
+    "db:format": "prisma format",
+    "db:migrate": "prisma migrate dev",
+    "db:seed": "tsx prisma/seed.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint .",
-    "format": "prettier --check \"src/**/*.{ts,tsx,css}\" \"*.{json,ts,mjs}\"",
-    "format:write": "prettier --write \"src/**/*.{ts,tsx,css}\" \"*.{json,ts,mjs}\""
+    "format": "prettier --check \"src/**/*.{ts,tsx,css}\" \"prisma/**/*.ts\" \"*.{json,ts,mjs}\"",
+    "format:write": "prettier --write \"src/**/*.{ts,tsx,css}\" \"prisma/**/*.ts\" \"*.{json,ts,mjs}\""
   },
   "dependencies": {
+    "@prisma/adapter-pg": "^7.8.0",
+    "@prisma/client": "^7.8.0",
     "next": "16.2.4",
+    "pg": "^8.14.1",
     "poker-evaluator": "^2.1.1",
     "react": "19.2.5",
     "react-dom": "19.2.5"
@@ -26,10 +34,14 @@
   "devDependencies": {
     "@eslint/js": "10.0.1",
     "@types/node": "25.6.0",
+    "@types/pg": "^8.11.11",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
+    "dotenv": "^17.2.3",
     "eslint": "10.2.1",
     "prettier": "3.8.3",
+    "prisma": "^7.8.0",
+    "tsx": "^4.21.0",
     "typescript": "6.0.3",
     "typescript-eslint": "8.59.0",
     "vitest": "4.1.5"

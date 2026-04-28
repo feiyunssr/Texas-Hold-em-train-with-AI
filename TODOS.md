@@ -6,6 +6,19 @@ No open documentation TODOs.
 
 ## Completed
 
+### 2026-04-28: Resolve charged wallet persistence review findings
+
+- **Result:** Completed in [`src/server/persistence/training-assets.ts`](src/server/persistence/training-assets.ts), [`src/server/persistence/prisma-training-assets.ts`](src/server/persistence/prisma-training-assets.ts), and [`src/server/persistence/types.ts`](src/server/persistence/types.ts).
+- **Closed by:** Replaced read/absolute-write wallet debits with a conditional atomic decrement, made concurrent `request_id` retries re-read and return the committed charged artifact, and rejected non-positive or fractional charge amounts before persistence.
+- **Validation:** `npm test -- src/server/persistence/training-assets.test.ts`, `npm test`, `npm run typecheck`, `npm run lint`, and `npm run format`.
+
+### 2026-04-28: Complete M2 training assets and persistence
+
+- **Result:** Completed in [`prisma/schema.prisma`](prisma/schema.prisma), [`src/server/persistence/training-assets.ts`](src/server/persistence/training-assets.ts), and [`src/server/persistence/prisma-training-assets.ts`](src/server/persistence/prisma-training-assets.ts).
+- **Closed by:** Added PostgreSQL Prisma models, initial migration, demo seed data, event/snapshot/artifact/wallet persistence services, read model queries, request idempotency, and transaction-backed AI artifact plus wallet ledger charging.
+- **Validation:** `npm run db:generate`, `npm run db:format`, `DATABASE_URL='postgresql://user:pass@localhost:5432/texas_holdem_train?schema=public' npx prisma validate`, `npm test`, `DATABASE_URL='postgresql://user:pass@localhost:5432/texas_holdem_train?schema=public' npm run typecheck`, `npm run lint`, `npm run format`, and `npm run build`.
+- **Note:** `npm run db:migrate` was not run because no local PostgreSQL instance is configured in this environment. `npm audit --audit-level=moderate` currently fails on a Prisma 7.8.0 dev dependency advisory; the offered force fix downgrades Prisma to 6.19.3, so it was not applied.
+
 ### 2026-04-27: Fix M1 NLHE rule review findings
 
 - **Result:** Completed in [`src/domain/poker/index.ts`](src/domain/poker/index.ts) with regression coverage in [`src/domain/poker/index.test.ts`](src/domain/poker/index.test.ts).

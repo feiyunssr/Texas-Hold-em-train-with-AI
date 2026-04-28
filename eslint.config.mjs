@@ -6,6 +6,7 @@ export default [
     ignores: [
       ".next/**",
       "coverage/**",
+      "generated/**",
       "node_modules/**",
       "next-env.d.ts",
       "package-lock.json"
