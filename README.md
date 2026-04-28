@@ -81,3 +81,18 @@ M0 已建立 Next.js App Router + TypeScript 单体仓库基础：
 - 所有长期结构化对象带 `schema_version`，并建立 `hand_event_log(hand_id, sequence)`、`decision_snapshot(hand_id, decision_point_id)`、`ai_artifact(request_id)`、`wallet_ledger(request_id)` 唯一约束。
 - `src/server/persistence` 提供事件追加、决策快照、AI artifact、同事务扣点账务和 read model 查询服务。
 - 收费类 AI artifact 与 `wallet_ledger` 在同一事务内写入；扣点使用条件原子扣减，`request_id` 并发重试返回已提交结果，事务失败会返回未扣点状态。
+
+## 单桌训练运行时
+
+当前 M3 已建立开发期单桌运行时：
+
+- `src/server/training-runtime` 提供进程内训练桌 session、用户席位、AI 对手 mock 策略、public read model、`bot-seat-view` 和事件订阅。
+- POST 控制面：
+  - `POST /api/training/tables` 创建 4、6、9 或 12 人训练桌。
+  - `POST /api/training/tables/:tableId/actions` 提交用户动作，并由规则引擎校验合法动作集合。
+  - `POST /api/training/tables/:tableId/next-hand` 在当前手牌完成后准备下一手。
+- 状态读取与同步：
+  - `GET /api/training/tables/:tableId` 返回当前 public snapshot，可用于刷新后恢复。
+  - `GET /api/training/tables/:tableId/events` 提供 SSE stream，并在订阅时先推送当前 snapshot；重连回放优先使用浏览器 `Last-Event-ID`，再回退到 `?after=`。
+- 对外暴露的 `tableId` 使用 crypto-random ID，避免递增 ID 被猜测后读取或操作其他训练桌。
+- AI 对手只能通过 `bot-seat-view` 获取该座位理论可见信息；public snapshot 在手牌完成前隐藏非 Hero 底牌。

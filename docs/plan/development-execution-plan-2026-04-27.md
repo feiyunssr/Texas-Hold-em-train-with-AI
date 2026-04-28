@@ -242,6 +242,8 @@ Codex 任务：
 
 目标：跑通一个用户席位与多个 AI 对手的训练桌。
 
+状态：**COMPLETED 2026-04-28**
+
 Codex 任务：
 
 1. 实现创建训练桌 API，支持人数、盲注、筹码、ante、straddle、AI 风格分布。
@@ -263,6 +265,20 @@ Codex 任务：
 - 用户提交合法动作后事件流追加并推进桌面。
 - 非法动作被拒绝且不污染事件流。
 - 前端刷新或重新订阅 SSE 后，可以通过 read model 恢复当前 hand 派生状态。
+
+完成记录：
+
+- 已新增 `src/server/training-runtime`，提供进程内单桌 session 状态机、public read model、事件订阅、用户动作提交和下一手准备。
+- 已支持创建 4 人、6 人、9 人、12 人训练桌，配置人数、盲注、起始筹码、ante、straddle、Hero 座位、button、seed 和 AI 风格分布。
+- 已实现 `bot-seat-view`，AI 对手只能看到该座位底牌、公共牌、公开座位筹码/投入/状态、公开行动历史和当前合法动作，不读取 Hero 或其他 bot 底牌。
+- 已实现开发期 mock bot 策略，bot 会自动行动直到轮到用户或手牌完成。
+- 已新增 App Router API：`POST /api/training/tables`、`GET /api/training/tables/:tableId`、`POST /api/training/tables/:tableId/actions`、`GET /api/training/tables/:tableId/events` 和 `POST /api/training/tables/:tableId/next-hand`。
+- 已将对外暴露的训练桌 ID 改为 crypto-random、不可枚举的 route identifier，避免仅凭递增 ID 猜测其他训练桌。
+- 已通过规则引擎合法动作集合校验用户动作；非法动作返回拒绝事件，不追加 `player_action`。
+- 已实现 SSE 订阅，重新订阅时先推送当前 public snapshot，并支持按 `Last-Event-ID` 或 `?after=` public event sequence 回放。
+- 已更新 `CURRENT_TRAINING_MILESTONE` 为 `M3`。
+- 已将 `poker-evaluator` 配置为 Next 服务端外部包，避免生产构建时其 `HandRanks.dat` 数据文件路径被 Turbopack 改写。
+- 验证命令：`npm test -- src/server/training-runtime/index.test.ts src/app/api/training/tables/[tableId]/events/route.test.ts`、`npm test -- src/server/training-runtime/index.test.ts`、`npm test`、`npm run typecheck`、`npm run lint`、`npm run format`、`npm run build`。
 
 ## M4：行动前 AI 教练建议
 

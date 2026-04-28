@@ -13,6 +13,11 @@ export function getServiceHealth(): ServiceHealth {
 export { getPrisma } from "./db";
 export { PrismaTrainingAssetRepository } from "./persistence/prisma-training-assets";
 export { TrainingAssetService } from "./persistence/training-assets";
+export {
+  getTrainingTableRuntime,
+  TrainingRuntimeError,
+  TrainingTableRuntime
+} from "./training-runtime";
 export type {
   AIArtifactKind,
   AIArtifactRecord,
@@ -25,3 +30,10 @@ export type {
   WalletAccountRecord,
   WalletLedgerRecord
 } from "./persistence/types";
+export type {
+  BotSeatView,
+  BotStyle,
+  PublicHandState,
+  RuntimePublicEvent,
+  TrainingTableSnapshot
+} from "./training-runtime/types";

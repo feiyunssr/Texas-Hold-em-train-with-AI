@@ -6,6 +6,19 @@ No open documentation TODOs.
 
 ## Completed
 
+### 2026-04-28: Resolve M3 runtime API review findings
+
+- **Result:** Completed in [`src/server/training-runtime`](src/server/training-runtime) and [`src/app/api/training/tables/[tableId]/events`](src/app/api/training/tables/[tableId]/events).
+- **Closed by:** Replaced enumerable training table IDs with non-guessable crypto-random route identifiers and made SSE replay honor the browser `Last-Event-ID` reconnect header before falling back to `?after=`.
+- **Validation:** `npm test -- src/server/training-runtime/index.test.ts src/app/api/training/tables/[tableId]/events/route.test.ts`, `npm run typecheck`, `npm run lint`, and `npm run format`.
+
+### 2026-04-28: Complete M3 single-table training runtime
+
+- **Result:** Completed in [`src/server/training-runtime`](src/server/training-runtime), [`src/app/api/training/tables`](src/app/api/training/tables), and [`next.config.ts`](next.config.ts).
+- **Closed by:** Added in-memory training table sessions, 4/6/9/12-seat creation, user action validation against rule-engine legal actions, bot-only visible state, deterministic mock bot strategy, public snapshots, SSE event streaming, and next-hand preparation.
+- **Validation:** `npm test -- src/server/training-runtime/index.test.ts`, `npm test`, `npm run typecheck`, `npm run lint`, `npm run format`, and `npm run build`.
+- **Note:** `poker-evaluator` is marked in `serverExternalPackages` so its `HandRanks.dat` data file loads correctly during Next production builds.
+
 ### 2026-04-28: Resolve charged wallet persistence review findings
 
 - **Result:** Completed in [`src/server/persistence/training-assets.ts`](src/server/persistence/training-assets.ts), [`src/server/persistence/prisma-training-assets.ts`](src/server/persistence/prisma-training-assets.ts), and [`src/server/persistence/types.ts`](src/server/persistence/types.ts).
