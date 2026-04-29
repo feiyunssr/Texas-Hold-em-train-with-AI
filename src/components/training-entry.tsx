@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { HeroCoachAdvice } from "@/ai/hero-coach";
+import type { HandReview } from "@/ai/hand-review";
 import type { AiCoachConfig } from "@/ai/config";
 import type { ActionType, CardCode, LegalAction } from "@/domain/poker";
 import type {
@@ -93,6 +94,110 @@ type CoachApiResult = {
   message?: string;
 };
 
+type ReviewPanelState =
+  | {
+      status: "idle";
+      message: string;
+    }
+  | {
+      status: "requesting";
+      requestId: string;
+      message: string;
+    }
+  | {
+      status: "saved_charged";
+      requestId: string;
+      handId: string;
+      chargedAmount: number;
+      balanceAfter: number;
+      review: HandReview;
+      message: string;
+    }
+  | {
+      status: "failed_not_charged";
+      requestId: string;
+      handId: string | null;
+      errorType: string;
+      errorMessage: string;
+      message: string;
+    };
+
+type ReviewApiResult = {
+  status: "saved_charged" | "failed_not_charged";
+  requestId: string;
+  handId: string;
+  chargedAmount?: number;
+  balanceAfter?: number;
+  review?: unknown;
+  errorType?: string;
+  errorMessage?: string;
+  message?: string;
+};
+
+type HandHistoryFilters = {
+  playerCount: string;
+  position: string;
+  street: string;
+  result: string;
+  tag: string;
+  problemType: string;
+  opponentStyle: string;
+};
+
+type HandHistoryRowView = {
+  handId: string;
+  status: string;
+  startedAt: string;
+  completedAt: string | null;
+  completionReason: string | null;
+  playerCount: number;
+  heroSeatIndex: number | null;
+  heroPosition: string | null;
+  result: string | null;
+  hasAIArtifacts: boolean;
+  hasHeroCoach: boolean;
+  hasHandReview: boolean;
+  labelKeys: string[];
+  streets: string[];
+  opponentStyles: string[];
+};
+
+type HandReplayView = {
+  handId: string;
+  history: HandHistoryRowView;
+  timeline: Array<{
+    id: string;
+    sequence: number;
+    eventType: string;
+    street: string | null;
+    payload: unknown;
+    aiArtifacts: Array<{
+      id: string;
+      artifactKind: string;
+      status: string;
+      requestId: string;
+    }>;
+    labels: Array<{
+      key: string;
+      title: string;
+      source: string;
+      note: string | null;
+      aiArtifactId: string | null;
+    }>;
+    handReviewInsights: Array<{
+      aiArtifactId: string;
+      summary: string;
+      tags: string[];
+    }>;
+  }>;
+  handReviewArtifacts: Array<{
+    id: string;
+    status: string;
+    requestId: string;
+    responsePayload: unknown;
+  }>;
+};
+
 const DEFAULT_FORM: TableFormState = {
   playerCount: 6,
   smallBlind: 1,
@@ -108,7 +213,17 @@ const DEFAULT_FORM: TableFormState = {
 const DEMO_USER_ID = "demo-user";
 const DEMO_WALLET_ACCOUNT_ID = "demo-wallet-account";
 const COACH_CHARGE_AMOUNT = 1;
+const REVIEW_CHARGE_AMOUNT = 2;
 const INITIAL_EVENT_REPLAY_AFTER_SEQUENCE = 0;
+const DEFAULT_HISTORY_FILTERS: HandHistoryFilters = {
+  playerCount: "",
+  position: "",
+  street: "",
+  result: "",
+  tag: "",
+  problemType: "",
+  opponentStyle: ""
+};
 
 const SSE_EVENT_TYPES = [
   "table_created",
@@ -163,6 +278,19 @@ export function TrainingEntry({ coachConfig }: TrainingEntryProps) {
     status: "available",
     message: "轮到你行动时可请求一次正式 AI 建议。"
   });
+  const [reviewState, setReviewState] = useState<ReviewPanelState>({
+    status: "idle",
+    message: "手牌结束后可请求完整复盘。"
+  });
+  const [historyRows, setHistoryRows] = useState<HandHistoryRowView[]>([]);
+  const [historyFilters, setHistoryFilters] = useState<HandHistoryFilters>(
+    DEFAULT_HISTORY_FILTERS
+  );
+  const [selectedReplay, setSelectedReplay] = useState<HandReplayView | null>(
+    null
+  );
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [isLoadingReplay, setIsLoadingReplay] = useState(false);
   const [lastDecisionKey, setLastDecisionKey] = useState<string | null>(null);
   const isSubmittingActionRef = useRef(false);
 
@@ -240,6 +368,10 @@ export function TrainingEntry({ coachConfig }: TrainingEntryProps) {
     });
   }, [decisionKey, lastDecisionKey]);
 
+  useEffect(() => {
+    void loadHistory();
+  }, []);
+
   async function createTable() {
     setIsCreating(true);
     setNotice(null);
@@ -280,6 +412,10 @@ export function TrainingEntry({ coachConfig }: TrainingEntryProps) {
 
       setSnapshot(payload as TrainingTableSnapshot);
       setEvents([]);
+      setReviewState({
+        status: "idle",
+        message: "手牌结束后可请求完整复盘。"
+      });
     } catch (error) {
       setNotice(errorMessage(error, "训练桌创建失败。"));
     } finally {
@@ -414,10 +550,136 @@ export function TrainingEntry({ coachConfig }: TrainingEntryProps) {
         status: "available",
         message: "轮到你行动时可请求一次正式 AI 建议。"
       });
+      setReviewState({
+        status: "idle",
+        message: "手牌结束后可请求完整复盘。"
+      });
     } catch (error) {
       setNotice(errorMessage(error, "下一手牌启动失败。"));
     } finally {
       setIsStartingNextHand(false);
+    }
+  }
+
+  async function requestHandReview() {
+    if (!snapshot || snapshot.status !== "hand_complete") {
+      return;
+    }
+
+    const requestId = crypto.randomUUID();
+    setReviewState({
+      status: "requesting",
+      requestId,
+      message: "AI 正在生成整手复盘，成功保存后才会扣点。"
+    });
+    setNotice(null);
+
+    try {
+      const response = await fetch(
+        `/api/training/tables/${snapshot.tableId}/review`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            requestId,
+            userId: DEMO_USER_ID,
+            walletAccountId: DEMO_WALLET_ACCOUNT_ID,
+            chargeAmount: REVIEW_CHARGE_AMOUNT
+          })
+        }
+      );
+      const result = (await response.json()) as ReviewApiResult;
+
+      if (!response.ok || result.status === "failed_not_charged") {
+        setReviewState({
+          status: "failed_not_charged",
+          requestId,
+          handId: result.handId ?? snapshot.hand.handId,
+          errorType: result.errorType ?? result.status ?? "review_failed",
+          errorMessage:
+            result.errorMessage ?? result.message ?? "本次复盘未完成，未扣点。",
+          message: "本次复盘未完成，未扣点。"
+        });
+        return;
+      }
+
+      setReviewState({
+        status: "saved_charged",
+        requestId: result.requestId,
+        handId: result.handId,
+        chargedAmount: result.chargedAmount ?? REVIEW_CHARGE_AMOUNT,
+        balanceAfter: result.balanceAfter ?? 0,
+        review: parseHandReview(result.review),
+        message: "整手复盘已保存，点数已扣除。"
+      });
+      await loadHistory();
+      await loadReplay(result.handId);
+    } catch (error) {
+      setReviewState({
+        status: "failed_not_charged",
+        requestId,
+        handId: snapshot.hand.handId,
+        errorType: "network_error",
+        errorMessage: errorMessage(error, "请求整手复盘失败。"),
+        message: "本次复盘未完成，未扣点。"
+      });
+    }
+  }
+
+  async function loadHistory(nextFilters = historyFilters) {
+    setIsLoadingHistory(true);
+    try {
+      const params = new URLSearchParams({
+        userId: DEMO_USER_ID,
+        limit: "20"
+      });
+      for (const [key, value] of Object.entries(nextFilters)) {
+        if (value) {
+          params.set(key, value);
+        }
+      }
+
+      const response = await fetch(`/api/training/history?${params}`);
+      const payload = (await response.json()) as {
+        history?: HandHistoryRowView[];
+        message?: string;
+      };
+
+      if (!response.ok) {
+        throw new Error(payload.message);
+      }
+
+      setHistoryRows(payload.history ?? []);
+    } catch (error) {
+      setNotice(errorMessage(error, "历史列表加载失败。"));
+    } finally {
+      setIsLoadingHistory(false);
+    }
+  }
+
+  async function applyHistoryFilters(nextFilters: HandHistoryFilters) {
+    setHistoryFilters(nextFilters);
+    await loadHistory(nextFilters);
+  }
+
+  async function loadReplay(handId: string) {
+    setIsLoadingReplay(true);
+    try {
+      const params = new URLSearchParams({ userId: DEMO_USER_ID });
+      const response = await fetch(`/api/training/history/${handId}?${params}`);
+      const payload = (await response.json()) as
+        | HandReplayView
+        | { message?: string };
+
+      if (!response.ok) {
+        throw new Error("message" in payload ? payload.message : undefined);
+      }
+
+      setSelectedReplay(payload as HandReplayView);
+    } catch (error) {
+      setNotice(errorMessage(error, "单手回放加载失败。"));
+    } finally {
+      setIsLoadingReplay(false);
     }
   }
 
@@ -471,8 +733,20 @@ export function TrainingEntry({ coachConfig }: TrainingEntryProps) {
           <HandSummary
             snapshot={snapshot}
             events={events}
+            reviewState={reviewState}
             isStartingNextHand={isStartingNextHand}
+            onRequestReview={requestHandReview}
             onStartNextHand={startNextHand}
+          />
+          <HistoryPanel
+            rows={historyRows}
+            filters={historyFilters}
+            replay={selectedReplay}
+            isLoadingHistory={isLoadingHistory}
+            isLoadingReplay={isLoadingReplay}
+            onFiltersChange={applyHistoryFilters}
+            onRefresh={() => loadHistory()}
+            onSelectReplay={loadReplay}
           />
         </aside>
       </div>
@@ -1001,12 +1275,16 @@ function AdviceView({ advice }: { advice: HeroCoachAdvice }) {
 function HandSummary({
   snapshot,
   events,
+  reviewState,
   isStartingNextHand,
+  onRequestReview,
   onStartNextHand
 }: {
   snapshot: TrainingTableSnapshot | null;
   events: RuntimePublicEvent[];
+  reviewState: ReviewPanelState;
   isStartingNextHand: boolean;
+  onRequestReview: () => void;
   onStartNextHand: () => void;
 }) {
   const awards = snapshot?.hand.awards ?? [];
@@ -1023,7 +1301,7 @@ function HandSummary({
       {snapshot?.status === "hand_complete" ? (
         <>
           <p className="coachMessage">
-            本手牌已结束，可从这里查看结算和行动摘要。
+            本手牌已结束，可从这里查看结算、行动摘要并发起整手复盘。
           </p>
           <div className="summaryRows">
             {awards.map((award, index) => (
@@ -1039,6 +1317,15 @@ function HandSummary({
           <button
             type="button"
             className="primaryButton fullWidthButton"
+            disabled={reviewState.status === "requesting"}
+            onClick={onRequestReview}
+          >
+            {reviewState.status === "requesting" ? "复盘中" : "请求整手复盘"}
+          </button>
+          <ReviewResult reviewState={reviewState} />
+          <button
+            type="button"
+            className="secondaryButton fullWidthButton"
             disabled={isStartingNextHand}
             onClick={onStartNextHand}
           >
@@ -1065,6 +1352,267 @@ function HandSummary({
         </ol>
       </details>
     </section>
+  );
+}
+
+function ReviewResult({ reviewState }: { reviewState: ReviewPanelState }) {
+  if (reviewState.status === "idle") {
+    return <p className="coachMessage">{reviewState.message}</p>;
+  }
+
+  if (reviewState.status === "requesting") {
+    return <p className="coachMessage">{reviewState.message}</p>;
+  }
+
+  if (reviewState.status === "failed_not_charged") {
+    return (
+      <p className="errorDetail">
+        {reviewState.message} {reviewState.errorType}:{" "}
+        {reviewState.errorMessage}
+      </p>
+    );
+  }
+
+  return (
+    <div className="reviewResult">
+      <div className="chargePill">已扣 {reviewState.chargedAmount} 点</div>
+      <p>{reviewState.review.summary}</p>
+      <p>{reviewState.review.result}</p>
+      <ul>
+        {reviewState.review.streetInsights.map((insight) => (
+          <li key={insight.street}>
+            {STREET_LABELS[insight.street]} · {insight.summary}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function HistoryPanel({
+  rows,
+  filters,
+  replay,
+  isLoadingHistory,
+  isLoadingReplay,
+  onFiltersChange,
+  onRefresh,
+  onSelectReplay
+}: {
+  rows: HandHistoryRowView[];
+  filters: HandHistoryFilters;
+  replay: HandReplayView | null;
+  isLoadingHistory: boolean;
+  isLoadingReplay: boolean;
+  onFiltersChange: (filters: HandHistoryFilters) => void;
+  onRefresh: () => void;
+  onSelectReplay: (handId: string) => void;
+}) {
+  return (
+    <section className="historyPanel" aria-label="历史手牌和单手回放">
+      <div className="panelHeader">
+        <div>
+          <span className="sectionLabel">历史与回放</span>
+          <h2>已完成手牌</h2>
+        </div>
+        <button
+          type="button"
+          className="secondaryButton compactButton"
+          disabled={isLoadingHistory}
+          onClick={onRefresh}
+        >
+          刷新
+        </button>
+      </div>
+      <HistoryFilters filters={filters} onChange={onFiltersChange} />
+      {rows.length === 0 ? (
+        <div className="emptyHistory">
+          <p>暂无可回放手牌。</p>
+          <a
+            className="primaryButton historyStartLink"
+            href="#training-entry-title"
+          >
+            进入训练牌桌
+          </a>
+        </div>
+      ) : (
+        <div className="historyList">
+          {rows.map((row) => (
+            <button
+              key={row.handId}
+              type="button"
+              className="historyRow"
+              disabled={isLoadingReplay}
+              onClick={() => onSelectReplay(row.handId)}
+            >
+              <span>{formatDateTime(row.completedAt ?? row.startedAt)}</span>
+              <strong>
+                {row.playerCount} 人 · {positionLabel(row.heroPosition)}
+              </strong>
+              <span>
+                {resultLabel(row.result)} ·{" "}
+                {row.labelKeys.join(", ") || "无标签"}
+              </span>
+              <span>
+                {row.hasHeroCoach ? "即时建议" : "无即时建议"} /{" "}
+                {row.hasHandReview ? "已复盘" : "未复盘"}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+      <ReplayView replay={replay} isLoading={isLoadingReplay} />
+    </section>
+  );
+}
+
+function HistoryFilters({
+  filters,
+  onChange
+}: {
+  filters: HandHistoryFilters;
+  onChange: (filters: HandHistoryFilters) => void;
+}) {
+  function update(key: keyof HandHistoryFilters, value: string) {
+    onChange({ ...filters, [key]: value });
+  }
+
+  return (
+    <div className="historyFilters">
+      <select
+        aria-label="人数筛选"
+        value={filters.playerCount}
+        onChange={(event) => update("playerCount", event.target.value)}
+      >
+        <option value="">人数</option>
+        <option value="4">4 人</option>
+        <option value="6">6 人</option>
+        <option value="9">9 人</option>
+        <option value="12">12 人</option>
+      </select>
+      <select
+        aria-label="位置筛选"
+        value={filters.position}
+        onChange={(event) => update("position", event.target.value)}
+      >
+        <option value="">位置</option>
+        <option value="button">BTN</option>
+        <option value="small_blind">SB</option>
+        <option value="big_blind">BB</option>
+        <option value="other">其他</option>
+      </select>
+      <select
+        aria-label="街道筛选"
+        value={filters.street}
+        onChange={(event) => update("street", event.target.value)}
+      >
+        <option value="">街道</option>
+        <option value="preflop">翻前</option>
+        <option value="flop">翻牌</option>
+        <option value="turn">转牌</option>
+        <option value="river">河牌</option>
+      </select>
+      <select
+        aria-label="结果筛选"
+        value={filters.result}
+        onChange={(event) => update("result", event.target.value)}
+      >
+        <option value="">结果</option>
+        <option value="win">盈利</option>
+        <option value="loss">亏损</option>
+        <option value="even">持平</option>
+        <option value="fold">弃牌结束</option>
+        <option value="showdown">摊牌</option>
+      </select>
+      <input
+        aria-label="标签筛选"
+        placeholder="标签"
+        value={filters.tag}
+        onChange={(event) => update("tag", event.target.value)}
+      />
+      <input
+        aria-label="问题类型筛选"
+        placeholder="问题类型"
+        value={filters.problemType}
+        onChange={(event) => update("problemType", event.target.value)}
+      />
+      <select
+        aria-label="对手风格筛选"
+        value={filters.opponentStyle}
+        onChange={(event) => update("opponentStyle", event.target.value)}
+      >
+        <option value="">对手风格</option>
+        <option value="tight">紧</option>
+        <option value="balanced">均衡</option>
+        <option value="loose">松</option>
+        <option value="aggressive">压迫</option>
+      </select>
+    </div>
+  );
+}
+
+function ReplayView({
+  replay,
+  isLoading
+}: {
+  replay: HandReplayView | null;
+  isLoading: boolean;
+}) {
+  if (isLoading) {
+    return <p className="coachMessage">回放加载中。</p>;
+  }
+
+  if (!replay) {
+    return <p className="coachMessage">选择一手历史记录后显示事件流。</p>;
+  }
+
+  const handReview = replay.handReviewArtifacts
+    .map((artifact) => parseHandReviewPayload(artifact.responsePayload))
+    .find(Boolean);
+
+  return (
+    <div className="replayView">
+      <h3>{replay.handId}</h3>
+      {handReview ? (
+        <div className="reviewResult">
+          <strong>复盘</strong>
+          <p>{handReview.summary}</p>
+        </div>
+      ) : null}
+      <ol>
+        {replay.timeline.map((event) => (
+          <li key={event.id}>
+            <span>
+              #{event.sequence} {event.street ? streetLabel(event.street) : ""}{" "}
+              {event.eventType}
+            </span>
+            {event.aiArtifacts.length > 0 ? (
+              <small>
+                AI:{" "}
+                {event.aiArtifacts
+                  .map(
+                    (artifact) => `${artifact.artifactKind}/${artifact.status}`
+                  )
+                  .join(", ")}
+              </small>
+            ) : null}
+            {event.labels.length > 0 ? (
+              <small>
+                标签: {event.labels.map((label) => label.key).join(", ")}
+              </small>
+            ) : null}
+            {event.handReviewInsights.length > 0 ? (
+              <small>
+                复盘:{" "}
+                {event.handReviewInsights
+                  .map((insight) => insight.summary)
+                  .join(" / ")}
+              </small>
+            ) : null}
+          </li>
+        ))}
+      </ol>
+    </div>
   );
 }
 
@@ -1134,6 +1682,43 @@ function parseAdvice(value: unknown): HeroCoachAdvice | null {
   }
 
   return candidate;
+}
+
+function parseHandReview(value: unknown): HandReview {
+  if (!value || typeof value !== "object") {
+    return {
+      summary: "复盘结果已保存。",
+      result: "暂无结构化结果。",
+      streetInsights: [],
+      tags: []
+    };
+  }
+
+  const candidate = value as HandReview;
+  if (
+    typeof candidate.summary !== "string" ||
+    typeof candidate.result !== "string" ||
+    !Array.isArray(candidate.streetInsights) ||
+    !Array.isArray(candidate.tags)
+  ) {
+    return {
+      summary: "复盘结果已保存。",
+      result: "暂无结构化结果。",
+      streetInsights: [],
+      tags: []
+    };
+  }
+
+  return candidate;
+}
+
+function parseHandReviewPayload(value: unknown): HandReview | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const review = (value as { review?: unknown }).review;
+  return review ? parseHandReview(review) : null;
 }
 
 function buildAiStyles(
@@ -1236,6 +1821,46 @@ function statusCopy(snapshot: TrainingTableSnapshot): string {
   }
 
   return "AI 对手行动中";
+}
+
+function streetLabel(street: string): string {
+  if (street in STREET_LABELS) {
+    return STREET_LABELS[street as keyof typeof STREET_LABELS];
+  }
+
+  return street;
+}
+
+function positionLabel(position: string | null): string {
+  const labels: Record<string, string> = {
+    button: "BTN",
+    small_blind: "SB",
+    big_blind: "BB",
+    other: "其他"
+  };
+
+  return position ? (labels[position] ?? position) : "未知位置";
+}
+
+function resultLabel(result: string | null): string {
+  const labels: Record<string, string> = {
+    win: "盈利",
+    loss: "亏损",
+    even: "持平",
+    fold: "弃牌结束",
+    showdown: "摊牌"
+  };
+
+  return result ? (labels[result] ?? result) : "未知结果";
+}
+
+function formatDateTime(value: string): string {
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(new Date(value));
 }
 
 function currentActorCopy(snapshot: TrainingTableSnapshot | null): string {

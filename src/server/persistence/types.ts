@@ -98,8 +98,14 @@ export type HandHistoryRow = {
   completionReason: string | null;
   playerCount: number;
   heroSeatIndex: number | null;
+  heroPosition: string | null;
+  result: string | null;
   hasAIArtifacts: boolean;
+  hasHeroCoach: boolean;
+  hasHandReview: boolean;
   labelKeys: string[];
+  streets: string[];
+  opponentStyles: string[];
 };
 
 export type DecisionAuditTrail = {
@@ -108,6 +114,44 @@ export type DecisionAuditTrail = {
     AIArtifactRecord & {
       walletLedgers: WalletLedgerRecord[];
     }
+  >;
+};
+
+export type HandHistoryFilters = {
+  playerCount?: number;
+  heroPosition?: string;
+  street?: string;
+  result?: string;
+  label?: string;
+  problemType?: string;
+  opponentStyle?: string;
+};
+
+export type HandReplay = {
+  handId: string;
+  history: HandHistoryRow;
+  timeline: Array<
+    StoredHandEvent & {
+      street: string | null;
+      aiArtifacts: Array<
+        AIArtifactRecord & { walletLedgers: WalletLedgerRecord[] }
+      >;
+      labels: Array<{
+        key: string;
+        title: string;
+        source: string;
+        note: string | null;
+        aiArtifactId: string | null;
+      }>;
+      handReviewInsights: Array<{
+        aiArtifactId: string;
+        summary: string;
+        tags: string[];
+      }>;
+    }
+  >;
+  handReviewArtifacts: Array<
+    AIArtifactRecord & { walletLedgers: WalletLedgerRecord[] }
   >;
 };
 
@@ -177,6 +221,12 @@ export type TrainingAssetRepository = {
   ): Promise<
     (AIArtifactRecord & { walletLedgers: WalletLedgerRecord[] }) | null
   >;
+  findLatestChargedAIArtifactForHand(
+    handId: string,
+    artifactKind: AIArtifactKind
+  ): Promise<
+    (AIArtifactRecord & { walletLedgers: WalletLedgerRecord[] }) | null
+  >;
   findDecisionSnapshot(
     handId: string,
     decisionPointId: string
@@ -199,7 +249,12 @@ export type TrainingAssetRepository = {
     handId: string,
     decisionPointId: string
   ): Promise<DecisionAuditTrail>;
-  listHandHistory(userId: string, limit: number): Promise<HandHistoryRow[]>;
+  listHandHistory(
+    userId: string,
+    limit: number,
+    filters?: HandHistoryFilters
+  ): Promise<HandHistoryRow[]>;
+  getHandReplay(handId: string, userId: string): Promise<HandReplay | null>;
   getWalletLedger(
     walletAccountId: string,
     limit: number

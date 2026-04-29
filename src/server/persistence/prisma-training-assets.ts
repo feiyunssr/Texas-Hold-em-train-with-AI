@@ -6,8 +6,10 @@ import type {
   CreateWalletLedgerInput,
   DebitWalletAccountInput,
   DecisionAuditTrail,
+  HandHistoryFilters,
   DecisionSnapshotRecord,
   HandHistoryRow,
+  HandReplay,
   JsonValue,
   SaveAIArtifactInput,
   SaveDecisionSnapshotInput,
@@ -100,6 +102,36 @@ export class PrismaTrainingAssetRepository implements TrainingAssetRepository {
     const record = await this.prisma.aIArtifact.findUnique({
       where: { requestId },
       include: { walletLedgers: true }
+    });
+
+    if (!record) {
+      return null;
+    }
+
+    return {
+      ...toAIArtifactRecord(record),
+      walletLedgers: record.walletLedgers.map(toWalletLedgerRecord)
+    };
+  }
+
+  async findLatestChargedAIArtifactForHand(
+    handId: string,
+    artifactKind: AIArtifactRecord["artifactKind"]
+  ): Promise<
+    (AIArtifactRecord & { walletLedgers: WalletLedgerRecord[] }) | null
+  > {
+    const record = await this.prisma.aIArtifact.findFirst({
+      where: {
+        handId,
+        artifactKind,
+        status: "SAVED_CHARGED"
+      },
+      include: {
+        walletLedgers: {
+          orderBy: { createdAt: "asc" }
+        }
+      },
+      orderBy: { createdAt: "desc" }
     });
 
     if (!record) {
@@ -236,34 +268,165 @@ export class PrismaTrainingAssetRepository implements TrainingAssetRepository {
 
   async listHandHistory(
     userId: string,
-    limit: number
+    limit: number,
+    filters: HandHistoryFilters = {}
   ): Promise<HandHistoryRow[]> {
     const hands = await this.prisma.hand.findMany({
-      where: { userId },
+      where: {
+        userId,
+        ...(filters.playerCount === undefined
+          ? {}
+          : { tableConfig: { playerCount: filters.playerCount } }),
+        AND: [
+          ...(filters.label === undefined && filters.problemType === undefined
+            ? []
+            : [
+                {
+                  labelAssignments: {
+                    some: {
+                      labelDefinition: {
+                        key: filters.label ?? filters.problemType
+                      }
+                    }
+                  }
+                }
+              ]),
+          ...(filters.street === undefined
+            ? []
+            : [
+                {
+                  labelAssignments: {
+                    some: {
+                      street: filters.street
+                    }
+                  }
+                }
+              ])
+        ]
+      },
       include: {
         aiArtifacts: true,
         labelAssignments: {
           include: { labelDefinition: true }
         },
-        tableConfig: true
+        tableConfig: {
+          include: { seatProfiles: true }
+        }
       },
       orderBy: { startedAt: "desc" },
-      take: limit
+      take: Math.max(limit * 5, limit)
     });
 
-    return hands.map((hand) => ({
-      handId: hand.id,
-      status: hand.status,
-      startedAt: hand.startedAt,
-      completedAt: hand.completedAt,
-      completionReason: hand.completionReason,
-      playerCount: hand.tableConfig.playerCount,
-      heroSeatIndex: hand.heroSeatIndex,
-      hasAIArtifacts: hand.aiArtifacts.length > 0,
-      labelKeys: hand.labelAssignments.map(
-        (assignment) => assignment.labelDefinition.key
-      )
-    }));
+    return hands
+      .map(toHandHistoryRow)
+      .filter((row) => matchesHandHistoryFilters(row, filters))
+      .slice(0, limit);
+  }
+
+  async getHandReplay(
+    handId: string,
+    userId: string
+  ): Promise<HandReplay | null> {
+    const hand = await this.prisma.hand.findFirst({
+      where: { id: handId, userId },
+      include: {
+        tableConfig: {
+          include: { seatProfiles: true }
+        },
+        eventLogs: {
+          orderBy: { sequence: "asc" }
+        },
+        aiArtifacts: {
+          include: {
+            walletLedgers: {
+              orderBy: { createdAt: "asc" }
+            }
+          },
+          orderBy: { createdAt: "asc" }
+        },
+        decisionSnapshots: {
+          include: {
+            aiArtifacts: {
+              include: {
+                walletLedgers: {
+                  orderBy: { createdAt: "asc" }
+                }
+              },
+              orderBy: { createdAt: "asc" }
+            },
+            labelAssignments: {
+              include: { labelDefinition: true },
+              orderBy: { createdAt: "asc" }
+            }
+          }
+        },
+        labelAssignments: {
+          include: { labelDefinition: true },
+          orderBy: { createdAt: "asc" }
+        }
+      }
+    });
+
+    if (!hand) {
+      return null;
+    }
+
+    const history = toHandHistoryRow(hand);
+    const snapshotsByEventSequence = new Map(
+      hand.decisionSnapshots
+        .filter((snapshot) => snapshot.eventSequence !== null)
+        .map((snapshot) => [snapshot.eventSequence, snapshot])
+    );
+    const handReviewArtifacts = hand.aiArtifacts
+      .filter((artifact) => artifact.artifactKind === "HAND_REVIEW")
+      .map((artifact) => ({
+        ...toAIArtifactRecord(artifact),
+        walletLedgers: artifact.walletLedgers.map(toWalletLedgerRecord)
+      }));
+    const handReviewInsights = handReviewArtifacts.flatMap((artifact) =>
+      extractHandReviewInsights(artifact.id, artifact.responsePayload)
+    );
+    const timeline = hand.eventLogs.map((event) => {
+      const street = eventStreet(event);
+      const snapshot = snapshotsByEventSequence.get(event.sequence);
+      const labels = [
+        ...(snapshot?.labelAssignments ?? []),
+        ...hand.labelAssignments.filter(
+          (assignment) =>
+            assignment.decisionPointId?.includes(`event-${event.sequence}`) ||
+            (street !== null && assignment.street === street)
+        )
+      ];
+
+      return {
+        ...toStoredHandEvent(event),
+        street,
+        aiArtifacts:
+          snapshot?.aiArtifacts.map((artifact) => ({
+            ...toAIArtifactRecord(artifact),
+            walletLedgers: artifact.walletLedgers.map(toWalletLedgerRecord)
+          })) ?? [],
+        labels: labels.map((assignment) => ({
+          key: assignment.labelDefinition.key,
+          title: assignment.labelDefinition.title,
+          source: assignment.source,
+          note: assignment.note,
+          aiArtifactId: assignment.aiArtifactId
+        })),
+        handReviewInsights: handReviewInsights.filter(
+          (insight) =>
+            insight.keySequences.includes(event.sequence) ||
+            (street !== null && insight.street === street)
+        )
+      };
+    });
+
+    return {
+      handId,
+      history,
+      timeline,
+      handReviewArtifacts
+    };
   }
 
   async getWalletLedger(
@@ -371,6 +534,242 @@ function toWalletLedgerRecord(
     schemaVersion: record.schemaVersion,
     createdAt: record.createdAt
   };
+}
+
+type HandHistoryPrismaRecord = {
+  id: string;
+  status: string;
+  startedAt: Date;
+  completedAt: Date | null;
+  completionReason: string | null;
+  heroSeatIndex: number | null;
+  finalStatePayload?: Prisma.JsonValue | null;
+  tableConfig: {
+    playerCount: number;
+    startingStack: number;
+    buttonSeat: number;
+    smallBlind: number;
+    bigBlind: number;
+    seatProfiles: Array<{
+      seatIndex: number;
+      isHero: boolean;
+      styleProfile: Prisma.JsonValue | null;
+    }>;
+  };
+  aiArtifacts: Array<{
+    artifactKind: string;
+  }>;
+  labelAssignments: Array<{
+    street: string | null;
+    labelDefinition: {
+      key: string;
+    };
+  }>;
+};
+
+function toHandHistoryRow(hand: HandHistoryPrismaRecord): HandHistoryRow {
+  const heroSeat = hand.tableConfig.seatProfiles.find(
+    (seat) => seat.isHero || seat.seatIndex === hand.heroSeatIndex
+  );
+  const heroPosition = readStyleProfileString(
+    heroSeat?.styleProfile,
+    "position"
+  );
+  const opponentStyles = Array.from(
+    new Set(
+      hand.tableConfig.seatProfiles
+        .filter((seat) => !seat.isHero)
+        .map((seat) => readStyleProfileString(seat.styleProfile, "style"))
+        .filter((style): style is string => Boolean(style))
+    )
+  );
+  const labelKeys = Array.from(
+    new Set(
+      hand.labelAssignments.map((assignment) => assignment.labelDefinition.key)
+    )
+  );
+  const streets = Array.from(
+    new Set(
+      hand.labelAssignments
+        .map((assignment) => assignment.street)
+        .filter((street): street is string => Boolean(street))
+    )
+  );
+
+  return {
+    handId: hand.id,
+    status: hand.status,
+    startedAt: hand.startedAt,
+    completedAt: hand.completedAt,
+    completionReason: hand.completionReason,
+    playerCount: hand.tableConfig.playerCount,
+    heroSeatIndex: hand.heroSeatIndex,
+    heroPosition,
+    result: resolveHeroResult(hand),
+    hasAIArtifacts: hand.aiArtifacts.length > 0,
+    hasHeroCoach: hand.aiArtifacts.some(
+      (artifact) => artifact.artifactKind === "HERO_COACH"
+    ),
+    hasHandReview: hand.aiArtifacts.some(
+      (artifact) => artifact.artifactKind === "HAND_REVIEW"
+    ),
+    labelKeys,
+    streets,
+    opponentStyles
+  };
+}
+
+function matchesHandHistoryFilters(
+  row: HandHistoryRow,
+  filters: HandHistoryFilters
+): boolean {
+  return (
+    (filters.heroPosition === undefined ||
+      row.heroPosition === filters.heroPosition) &&
+    (filters.opponentStyle === undefined ||
+      row.opponentStyles.includes(filters.opponentStyle)) &&
+    (filters.street === undefined || row.streets.includes(filters.street)) &&
+    (filters.label === undefined || row.labelKeys.includes(filters.label)) &&
+    (filters.problemType === undefined ||
+      row.labelKeys.includes(filters.problemType)) &&
+    (filters.result === undefined ||
+      row.completionReason === filters.result ||
+      row.result === filters.result)
+  );
+}
+
+function resolveHeroResult(hand: HandHistoryPrismaRecord): string | null {
+  const finalState = hand.finalStatePayload;
+  if (
+    !finalState ||
+    typeof finalState !== "object" ||
+    Array.isArray(finalState)
+  ) {
+    return hand.completionReason;
+  }
+
+  const seats = finalState["seats"];
+  if (!Array.isArray(seats) || hand.heroSeatIndex === null) {
+    return hand.completionReason;
+  }
+
+  const heroSeat = seats.find(
+    (seat) =>
+      typeof seat === "object" &&
+      seat !== null &&
+      !Array.isArray(seat) &&
+      seat["seatIndex"] === hand.heroSeatIndex
+  );
+  if (!heroSeat || typeof heroSeat !== "object" || Array.isArray(heroSeat)) {
+    return hand.completionReason;
+  }
+
+  const stack = heroSeat["stack"];
+  if (typeof stack !== "number") {
+    return hand.completionReason;
+  }
+
+  if (stack > hand.tableConfig.startingStack) {
+    return "win";
+  }
+
+  if (stack < hand.tableConfig.startingStack) {
+    return "loss";
+  }
+
+  return "even";
+}
+
+function eventStreet(record: Prisma.HandEventLogModel): string | null {
+  const payload = record.payload;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return null;
+  }
+
+  const reviewStreet = payload["reviewStreet"];
+  if (typeof reviewStreet === "string") {
+    return reviewStreet;
+  }
+
+  const street = payload["street"];
+  if (typeof street === "string") {
+    return street;
+  }
+
+  return null;
+}
+
+function extractHandReviewInsights(
+  aiArtifactId: string,
+  responsePayload: JsonValue | null
+): Array<{
+  aiArtifactId: string;
+  street: string;
+  keySequences: number[];
+  summary: string;
+  tags: string[];
+}> {
+  if (
+    !responsePayload ||
+    typeof responsePayload !== "object" ||
+    Array.isArray(responsePayload)
+  ) {
+    return [];
+  }
+
+  const review = responsePayload["review"];
+  if (!review || typeof review !== "object" || Array.isArray(review)) {
+    return [];
+  }
+
+  const streetInsights = review["streetInsights"];
+  if (!Array.isArray(streetInsights)) {
+    return [];
+  }
+
+  return streetInsights.flatMap((insight) => {
+    if (!insight || typeof insight !== "object" || Array.isArray(insight)) {
+      return [];
+    }
+
+    const street = insight["street"];
+    const summary = insight["summary"];
+    const keySequences = insight["keySequences"];
+    const tags = insight["tags"];
+
+    if (
+      typeof street !== "string" ||
+      typeof summary !== "string" ||
+      !Array.isArray(keySequences) ||
+      !Array.isArray(tags)
+    ) {
+      return [];
+    }
+
+    return [
+      {
+        aiArtifactId,
+        street,
+        summary,
+        keySequences: keySequences.filter((sequence): sequence is number =>
+          Number.isInteger(sequence)
+        ),
+        tags: tags.filter((tag): tag is string => typeof tag === "string")
+      }
+    ];
+  });
+}
+
+function readStyleProfileString(
+  value: Prisma.JsonValue | null | undefined,
+  key: string
+): string | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const candidate = value[key];
+  return typeof candidate === "string" ? candidate : null;
 }
 
 function toInputJson(value: JsonValue): Prisma.InputJsonValue {

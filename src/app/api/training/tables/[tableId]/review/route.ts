@@ -1,34 +1,33 @@
 import { NextResponse } from "next/server";
 
-import { getAiCoachConfig } from "@/ai";
-import { MockHeroCoachProvider } from "@/ai/hero-coach";
+import { getAiCoachConfig, MockHandReviewProvider } from "@/ai";
 import { getPrisma } from "@/server/db";
-import { HeroCoachService } from "@/server/hero-coach";
+import { HandReviewService } from "@/server/hand-review";
 import { PrismaTrainingAssetRepository } from "@/server/persistence/prisma-training-assets";
 import { TrainingAssetService } from "@/server/persistence/training-assets";
 import {
   getTrainingTableRuntime,
   TrainingRuntimeError
 } from "@/server/training-runtime";
-import { persistRuntimeHandForCoach } from "@/server/training-runtime/persistence";
+import { persistRuntimeHandForReview } from "@/server/training-runtime/persistence";
 
-type CoachRouteContext = {
+type ReviewRouteContext = {
   params: Promise<{
     tableId: string;
   }>;
 };
 
-type CoachRequestBody = {
+type ReviewRequestBody = {
   requestId?: unknown;
   userId?: unknown;
   walletAccountId?: unknown;
   chargeAmount?: unknown;
 };
 
-export async function POST(request: Request, context: CoachRouteContext) {
+export async function POST(request: Request, context: ReviewRouteContext) {
   try {
     const { tableId } = await context.params;
-    const body = (await request.json()) as CoachRequestBody;
+    const body = (await request.json()) as ReviewRequestBody;
     const input = {
       tableId,
       requestId: requireString(body.requestId, "requestId"),
@@ -38,29 +37,27 @@ export async function POST(request: Request, context: CoachRouteContext) {
     };
     const runtime = getTrainingTableRuntime();
     const prisma = getPrisma();
-    const view = runtime.getHeroCoachView(tableId);
+    const view = runtime.getHandReviewView(tableId);
 
-    await persistRuntimeHandForCoach(prisma, view, input.userId);
+    await persistRuntimeHandForReview(prisma, view, input.userId);
 
-    const service = new HeroCoachService(
+    const service = new HandReviewService(
       runtime,
       new TrainingAssetService(new PrismaTrainingAssetRepository(prisma)),
-      new MockHeroCoachProvider(),
+      new MockHandReviewProvider(),
       getAiCoachConfig()
     );
-    const result = await service.requestAdvice(input);
+    const result = await service.requestReview(input);
 
-    return NextResponse.json(result, {
-      status: result.status === "already_requested" ? 409 : 200
-    });
+    return NextResponse.json(result);
   } catch (error) {
-    return coachErrorResponse(error);
+    return reviewErrorResponse(error);
   }
 }
 
 function requireString(value: unknown, fieldName: string): string {
   if (typeof value !== "string" || value.trim() === "") {
-    throw new CoachRouteInputError(`${fieldName} must be a non-empty string.`);
+    throw new ReviewRouteInputError(`${fieldName} must be a non-empty string.`);
   }
 
   return value;
@@ -68,14 +65,14 @@ function requireString(value: unknown, fieldName: string): string {
 
 function requireInteger(value: unknown, fieldName: string): number {
   if (typeof value !== "number" || !Number.isInteger(value)) {
-    throw new CoachRouteInputError(`${fieldName} must be an integer.`);
+    throw new ReviewRouteInputError(`${fieldName} must be an integer.`);
   }
 
   return value;
 }
 
-function coachErrorResponse(error: unknown) {
-  if (error instanceof CoachRouteInputError) {
+function reviewErrorResponse(error: unknown) {
+  if (error instanceof ReviewRouteInputError) {
     return NextResponse.json(
       {
         error: "invalid_request",
@@ -91,23 +88,30 @@ function coachErrorResponse(error: unknown) {
         error: error.code,
         message: error.message
       },
-      { status: error.code === "table_not_found" ? 404 : 409 }
+      {
+        status:
+          error.code === "table_not_found"
+            ? 404
+            : error.code === "hand_not_complete"
+              ? 409
+              : 400
+      }
     );
   }
 
   return NextResponse.json(
     {
-      error: "hero_coach_error",
+      error: "hand_review_error",
       message:
-        error instanceof Error ? error.message : "Hero coach request failed."
+        error instanceof Error ? error.message : "Hand review request failed."
     },
     { status: 500 }
   );
 }
 
-class CoachRouteInputError extends Error {
+class ReviewRouteInputError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = "CoachRouteInputError";
+    this.name = "ReviewRouteInputError";
   }
 }

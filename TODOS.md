@@ -6,6 +6,12 @@ No open documentation TODOs.
 
 ## Completed
 
+### 2026-04-29: Complete M6 review, history, and replay foundation
+
+- **Result:** Completed in [`src/server/hand-review`](src/server/hand-review), [`src/ai/hand-review.ts`](src/ai/hand-review.ts), [`src/app/api/training/history`](src/app/api/training/history), [`src/app/api/training/tables/[tableId]/review`](src/app/api/training/tables/[tableId]/review), and [`src/components/training-entry.tsx`](src/components/training-entry.tsx).
+- **Closed by:** Added completed-hand `review-view`, charged hand review artifact persistence, runtime hand event persistence for review, history list filters, single-hand replay with AI artifact/tag context, and UI entry points for hand review plus history replay.
+- **Validation:** `npm run typecheck`, `npm run format:write`, `npm test`, `npm run lint`, and `npm run build`.
+
 ### 2026-04-29: Resolve M5 UI review findings
 
 - **Result:** Completed in [`src/components/training-entry.tsx`](src/components/training-entry.tsx).

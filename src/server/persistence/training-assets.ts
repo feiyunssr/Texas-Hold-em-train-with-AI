@@ -4,6 +4,8 @@ import type {
   DecisionAuditTrail,
   DecisionSnapshotRecord,
   HandHistoryRow,
+  HandHistoryFilters,
+  HandReplay,
   SaveAIArtifactInput,
   SaveDecisionSnapshotInput,
   StoredHandEvent,
@@ -65,6 +67,18 @@ export class TrainingAssetService {
     requestId: string
   ): ReturnType<TrainingAssetRepository["findAIArtifactByRequestId"]> {
     return this.repository.findAIArtifactByRequestId(requestId);
+  }
+
+  findLatestChargedAIArtifactForHand(
+    handId: string,
+    artifactKind: Parameters<
+      TrainingAssetRepository["findLatestChargedAIArtifactForHand"]
+    >[1]
+  ): ReturnType<TrainingAssetRepository["findLatestChargedAIArtifactForHand"]> {
+    return this.repository.findLatestChargedAIArtifactForHand(
+      handId,
+      artifactKind
+    );
   }
 
   findDecisionSnapshot(
@@ -206,8 +220,16 @@ export class TrainingAssetService {
     return this.repository.getDecisionAuditTrail(handId, decisionPointId);
   }
 
-  listHandHistory(userId: string, limit = 20): Promise<HandHistoryRow[]> {
-    return this.repository.listHandHistory(userId, limit);
+  listHandHistory(
+    userId: string,
+    limit = 20,
+    filters?: HandHistoryFilters
+  ): Promise<HandHistoryRow[]> {
+    return this.repository.listHandHistory(userId, limit, filters);
+  }
+
+  getHandReplay(handId: string, userId: string): Promise<HandReplay | null> {
+    return this.repository.getHandReplay(handId, userId);
   }
 
   getWalletLedger(

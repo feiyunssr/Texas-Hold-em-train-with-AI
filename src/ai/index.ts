@@ -13,3 +13,16 @@ export type {
   HeroCoachProviderRequest,
   HeroCoachProviderResult
 } from "./hero-coach";
+export {
+  HAND_REVIEW_PROMPT_VERSION,
+  HAND_REVIEW_SCHEMA_VERSION,
+  MockHandReviewProvider,
+  runHandReviewProvider
+} from "./hand-review";
+export type {
+  HandReview,
+  HandReviewProvider,
+  HandReviewProviderRequest,
+  HandReviewProviderResult,
+  HandReviewStreetInsight
+} from "./hand-review";

@@ -14,6 +14,8 @@ import type {
   BeginHeroCoachRequestResult,
   BotSeatView,
   BotStyle,
+  HandReviewTimelineEvent,
+  HandReviewView,
   HeroCoachView,
   PublicHandState,
   RuntimePublicEvent,
@@ -162,6 +164,22 @@ export class TrainingTableRuntime {
     }
 
     return buildHeroCoachView(session);
+  }
+
+  getHandReviewView(tableId: string): HandReviewView {
+    const session = this.requireSession(tableId);
+
+    if (
+      session.status !== "hand_complete" ||
+      session.hand.street !== "complete"
+    ) {
+      throw new TrainingRuntimeError(
+        "hand_not_complete",
+        "Hand review view can only be built after the hand is complete."
+      );
+    }
+
+    return buildHandReviewView(session);
   }
 
   beginHeroCoachRequest(tableId: string): BeginHeroCoachRequestResult {
@@ -603,6 +621,43 @@ export function buildHeroCoachView(session: RuntimeSession): HeroCoachView {
   };
 }
 
+export function buildHandReviewView(session: RuntimeSession): HandReviewView {
+  const timeline = buildHandReviewTimeline(session.hand.events);
+
+  return {
+    tableId: session.tableId,
+    handId: session.handId,
+    handNumber: session.handNumber,
+    tableConfig: session.config,
+    heroSeatIndex: session.config.heroSeatIndex,
+    buttonSeat: session.hand.buttonSeat,
+    smallBlindSeat: session.hand.smallBlindSeat,
+    bigBlindSeat: session.hand.bigBlindSeat,
+    completionReason: session.hand.completionReason,
+    board: session.hand.board,
+    potTotal: calculatePotTotal(session.hand),
+    awards: session.hand.awards,
+    showdownResults: session.hand.showdownResults,
+    finalState: buildPublicHandState(session),
+    seats: session.hand.seats.map((seat) => {
+      const profile = session.seatProfiles[seat.seatIndex];
+      return {
+        seatIndex: seat.seatIndex,
+        playerId: profile.playerId,
+        displayName: profile.displayName,
+        isHero: profile.isHero,
+        style: profile.style,
+        finalStack: seat.stack,
+        totalCommitment: seat.totalCommitment,
+        status: seat.status,
+        holeCards: seat.holeCards,
+        position: getSeatPosition(session.hand, seat.seatIndex)
+      };
+    }),
+    timeline
+  };
+}
+
 export function buildTableSnapshot(
   session: RuntimeSession
 ): TrainingTableSnapshot {
@@ -646,6 +701,25 @@ function getSeatPosition(
   }
 
   return "other";
+}
+
+function buildHandReviewTimeline(
+  events: HandEvent[]
+): HandReviewTimelineEvent[] {
+  let currentStreet: HandReviewTimelineEvent["street"] = "preflop";
+
+  return events.map((event) => {
+    if (event.type === "street_advanced") {
+      currentStreet = event.payload.street;
+    }
+
+    return {
+      sequence: event.sequence,
+      street: currentStreet,
+      type: event.type,
+      payload: event.payload
+    };
+  });
 }
 
 export function getTrainingTableRuntime(): TrainingTableRuntime {

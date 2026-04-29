@@ -425,6 +425,17 @@ Codex 任务：
 - 历史列表空状态提供进入训练牌桌的主按钮。
 - 回放页面能看到事件流、即时建议、复盘和标签的上下文关系。
 
+完成记录：
+
+- 已新增完成手牌 `review-view`，只在 `hand_complete` 后生成，包含完整事件时间线、按街道标注、最终公开快照、摊牌/结算、座位风格和底牌。
+- 已新增 `src/ai/hand-review.ts` 与 `src/server/hand-review`，使用 `hand-review-v1` prompt version；成功复盘以 `HAND_REVIEW` artifact 保存，并复用 M2/M4 的 `saveChargedAIArtifact` 同事务写入 `ai_artifact + wallet_ledger`；同一手牌重复请求会返回已保存的整手复盘，避免重复 provider 调用和二次扣点。
+- 已新增 `POST /api/training/tables/:tableId/review`，请求体要求 `requestId`、`userId`、`walletAccountId` 和正整数 `chargeAmount`；复盘前会补齐 Prisma table、seat、completed hand 和 `hand_event_log`。
+- 已新增 `GET /api/training/history` 与 `GET /api/training/history/:handId`，历史列表返回时间、人数、Hero 位置、结果、标签、即时建议/复盘标记，并支持人数、位置、街道、派生盈亏结果、完成原因、标签、问题类型和对手风格筛选；单手回放按请求用户范围读取。
+- 已实现单手回放 read model：事件流挂载对应决策点的 AI artifact 与标签，整手复盘 artifact 作为 hand-level 上下文返回。
+- 已将首页侧栏扩展为 M6 工作台：完成手牌后可请求整手复盘，历史列表空状态提供进入训练牌桌按钮，选择历史手牌后展示事件流、即时建议、复盘和标签上下文。
+- 已更新 `CURRENT_TRAINING_MILESTONE` 为 `M6`。
+- 验证命令：`npm run typecheck`、`npm run format:write`、`npm test`、`npm run lint`、`npm run build`。
+
 ## M7：QA 与发布准备
 
 目标：确认 v1 主航道可稳定演示和继续迭代。

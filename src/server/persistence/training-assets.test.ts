@@ -7,6 +7,7 @@ import type {
   CreateWalletLedgerInput,
   DebitWalletAccountInput,
   DecisionAuditTrail,
+  HandReplay,
   DecisionSnapshotRecord,
   HandHistoryRow,
   SaveAIArtifactInput,
@@ -356,6 +357,36 @@ class InMemoryTrainingAssetRepository implements TrainingAssetRepository {
     };
   }
 
+  async findLatestChargedAIArtifactForHand(
+    handId: string,
+    artifactKind: AIArtifactRecord["artifactKind"]
+  ): Promise<
+    (AIArtifactRecord & { walletLedgers: WalletLedgerRecord[] }) | null
+  > {
+    const artifact = this.artifacts
+      .filter(
+        (candidate) =>
+          candidate.handId === handId &&
+          candidate.artifactKind === artifactKind &&
+          candidate.status === "SAVED_CHARGED"
+      )
+      .sort(
+        (left, right) => right.createdAt.getTime() - left.createdAt.getTime()
+      )
+      .at(0);
+
+    if (!artifact) {
+      return null;
+    }
+
+    return {
+      ...artifact,
+      walletLedgers: this.ledgers.filter(
+        (ledger) => ledger.aiArtifactId === artifact.id
+      )
+    };
+  }
+
   async findDecisionSnapshot(
     handId: string,
     decisionPointId: string
@@ -478,6 +509,13 @@ class InMemoryTrainingAssetRepository implements TrainingAssetRepository {
     return this.history.slice(0, limit);
   }
 
+  async getHandReplay(
+    _handId: string,
+    _userId: string
+  ): Promise<HandReplay | null> {
+    return null;
+  }
+
   async getWalletLedger(
     walletAccountId: string,
     limit: number
@@ -554,6 +592,18 @@ class ConcurrentRetryRepository implements TrainingAssetRepository {
     return this.committed.findAIArtifactByRequestId(requestId);
   }
 
+  findLatestChargedAIArtifactForHand(
+    handId: string,
+    artifactKind: AIArtifactRecord["artifactKind"]
+  ): Promise<
+    (AIArtifactRecord & { walletLedgers: WalletLedgerRecord[] }) | null
+  > {
+    return this.committed.findLatestChargedAIArtifactForHand(
+      handId,
+      artifactKind
+    );
+  }
+
   findDecisionSnapshot(
     handId: string,
     decisionPointId: string
@@ -599,6 +649,10 @@ class ConcurrentRetryRepository implements TrainingAssetRepository {
 
   listHandHistory(userId: string, limit: number): Promise<HandHistoryRow[]> {
     return this.committed.listHandHistory(userId, limit);
+  }
+
+  getHandReplay(handId: string, userId: string): Promise<HandReplay | null> {
+    return this.committed.getHandReplay(handId, userId);
   }
 
   getWalletLedger(

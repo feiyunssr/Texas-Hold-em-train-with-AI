@@ -8,6 +8,7 @@ import type {
   CreateWalletLedgerInput,
   DebitWalletAccountInput,
   DecisionAuditTrail,
+  HandReplay,
   DecisionSnapshotRecord,
   HandHistoryRow,
   SaveAIArtifactInput,
@@ -558,6 +559,35 @@ class InMemoryTrainingAssetRepository implements TrainingAssetRepository {
       : null;
   }
 
+  async findLatestChargedAIArtifactForHand(
+    handId: string,
+    artifactKind: AIArtifactRecord["artifactKind"]
+  ): Promise<
+    (AIArtifactRecord & { walletLedgers: WalletLedgerRecord[] }) | null
+  > {
+    const artifact =
+      this.artifacts
+        .filter(
+          (candidate) =>
+            candidate.handId === handId &&
+            candidate.artifactKind === artifactKind &&
+            candidate.status === "SAVED_CHARGED"
+        )
+        .sort(
+          (left, right) => right.createdAt.getTime() - left.createdAt.getTime()
+        )
+        .at(0) ?? null;
+
+    return artifact
+      ? {
+          ...artifact,
+          walletLedgers: this.ledgers.filter(
+            (ledger) => ledger.aiArtifactId === artifact.id
+          )
+        }
+      : null;
+  }
+
   async findDecisionSnapshot(
     handId: string,
     decisionPointId: string
@@ -668,6 +698,13 @@ class InMemoryTrainingAssetRepository implements TrainingAssetRepository {
     limit: number
   ): Promise<HandHistoryRow[]> {
     return this.history.slice(0, limit);
+  }
+
+  async getHandReplay(
+    _handId: string,
+    _userId: string
+  ): Promise<HandReplay | null> {
+    return null;
   }
 
   async getWalletLedger(

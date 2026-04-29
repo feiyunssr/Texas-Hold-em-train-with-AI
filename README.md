@@ -56,7 +56,7 @@ DATABASE_URL="postgresql://postgres:postgres@localhost:5432/texas_holdem_train?s
 - 支持 `4-12` 人可配置现金局
 - 牌桌对手由低成本 AI 驱动
 - `行动前 AI 建议` 是首要训练主航道
-- 整手复盘、场景生成、历史深度分析为后续强化能力
+- 整手复盘、历史回放已进入 v1 主航道，场景生成和长期深度分析为后续强化能力
 - 支持结构化手牌历史、标签体系与训练导向统计
 - UI 实现以 [设计系统](DESIGN.md) 为 source of truth，并按 12 人手机牌桌规格验证移动端布局
 
@@ -119,3 +119,14 @@ M0 已建立 Next.js App Router + TypeScript 单体仓库基础：
 - `AI 教练视角` 面板展示 available、requesting、saved charged、pending persistence、failed not charged、partial not final 和 already requested 状态；失败和 partial 明确显示未扣点。
 - 手牌结束后显示结算摘要、行动摘要和下一手入口。
 - 移动端按 12 人桌压缩布局组织座位、桌面、用户席位、行动区和教练面板，行动按钮固定在底部可触达。
+
+## 复盘、历史与回放
+
+当前 M6 已建立基础学习资产闭环：
+
+- `src/server/training-runtime` 可在完成手牌后生成 `review-view`，包含完整事件时间线、街道、最终公共快照、摊牌/结算和全部座位底牌。
+- `src/server/hand-review` 与 `src/ai/hand-review.ts` 编排整手复盘请求，成功结果作为 `HAND_REVIEW` artifact 保存，并复用 `ai_artifact + wallet_ledger` 同事务扣点；重复请求会先复用同一手牌已保存的整手复盘，避免二次调用 provider 或重复扣点。
+- `POST /api/training/tables/:tableId/review` 对当前已完成手牌发起复盘，并在写入复盘前补齐 Prisma `table_config`、`table_seat_profile`、`hand` 和 `hand_event_log`。
+- `GET /api/training/history` 提供 demo user 历史列表，支持人数、位置、街道、派生盈亏结果、完成原因、标签、问题类型和对手风格筛选。
+- `GET /api/training/history/:handId` 按请求用户范围读取单手回放，事件流会携带对应决策点的 AI artifact 和标签，整手复盘 artifact 作为 hand-level 上下文返回。
+- 首页侧栏新增历史/回放面板；空状态提供进入训练牌桌的主按钮，完成手牌后可直接请求整手复盘并打开回放。

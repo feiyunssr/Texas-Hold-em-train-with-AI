@@ -175,6 +175,43 @@ export type HeroCoachView = {
   }>;
 };
 
+export type HandReviewTimelineEvent = {
+  sequence: number;
+  street: Street;
+  type: HandEvent["type"];
+  payload: HandEvent["payload"];
+};
+
+export type HandReviewView = {
+  tableId: string;
+  handId: string;
+  handNumber: number;
+  tableConfig: TrainingTableConfig;
+  heroSeatIndex: number;
+  buttonSeat: number;
+  smallBlindSeat: number;
+  bigBlindSeat: number;
+  completionReason: HandState["completionReason"];
+  board: CardCode[];
+  potTotal: number;
+  awards: HandState["awards"];
+  showdownResults: HandState["showdownResults"];
+  finalState: PublicHandState;
+  seats: Array<{
+    seatIndex: number;
+    playerId: string;
+    displayName: string;
+    isHero: boolean;
+    style: BotStyle | "hero";
+    finalStack: number;
+    totalCommitment: number;
+    status: SeatStatus;
+    holeCards: CardCode[];
+    position: "button" | "small_blind" | "big_blind" | "other";
+  }>;
+  timeline: HandReviewTimelineEvent[];
+};
+
 export type BeginHeroCoachRequestResult =
   | {
       status: "locked";

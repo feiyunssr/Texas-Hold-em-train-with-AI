@@ -268,7 +268,8 @@
 .heroZone,
 .actionTray,
 .coachPanel,
-.handSummary {
+.handSummary,
+.historyPanel {
   border: 1px solid var(--color-border-default);
   border-radius: var(--radius-panel);
   background: var(--color-surface-panel);
@@ -346,7 +347,8 @@ button:disabled {
 
 .primaryButton,
 .dangerButton,
-.coachButton {
+.coachButton,
+.secondaryButton {
   padding: var(--space-2) var(--space-3);
 }
 
@@ -369,6 +371,17 @@ button:disabled {
   background: #eff6ff;
   border-color: #bfdbfe;
   color: var(--color-coach-accent);
+}
+
+.secondaryButton {
+  background: var(--color-surface-subtle);
+  border-color: var(--color-border-default);
+  color: var(--color-text-primary);
+}
+
+.compactButton {
+  min-height: 36px;
+  padding: var(--space-1) var(--space-2);
 }
 
 .quickSizes button {
@@ -493,9 +506,126 @@ button:disabled {
   font-weight: 800;
 }
 
-.handSummary {
+.handSummary,
+.historyPanel {
   display: grid;
   gap: var(--space-3);
+}
+
+.reviewResult {
+  display: grid;
+  gap: var(--space-2);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-subtle);
+  padding: var(--space-3);
+}
+
+.reviewResult p {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.reviewResult ul,
+.replayView ol {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding-left: 20px;
+}
+
+.historyFilters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.historyFilters input,
+.historyFilters select {
+  min-height: 40px;
+  min-width: 0;
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-panel);
+  color: var(--color-text-primary);
+  padding: var(--space-2);
+}
+
+.emptyHistory {
+  display: grid;
+  gap: var(--space-3);
+  border: 1px dashed var(--color-border-default);
+  border-radius: var(--radius-control);
+  padding: var(--space-3);
+}
+
+.emptyHistory p {
+  margin: 0;
+  color: var(--color-text-secondary);
+}
+
+.historyStartLink {
+  display: grid;
+  place-items: center;
+  text-decoration: none;
+}
+
+.historyList {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.historyRow {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  min-height: 92px;
+  border-color: var(--color-border-default);
+  background: var(--color-surface-panel);
+  color: var(--color-text-primary);
+  padding: var(--space-3);
+  text-align: left;
+}
+
+.historyRow span {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.historyRow strong {
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.replayView {
+  display: grid;
+  gap: var(--space-3);
+  border-top: 1px solid var(--color-border-default);
+  padding-top: var(--space-3);
+}
+
+.replayView h3 {
+  overflow: hidden;
+  margin: 0;
+  font-size: 14px;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.replayView li {
+  display: grid;
+  gap: 2px;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.replayView small {
+  color: var(--color-coach-accent);
 }
 
 .replayDetails {

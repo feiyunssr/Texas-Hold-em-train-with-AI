@@ -14,6 +14,7 @@ export { getPrisma } from "./db";
 export { PrismaTrainingAssetRepository } from "./persistence/prisma-training-assets";
 export { TrainingAssetService } from "./persistence/training-assets";
 export { HeroCoachService } from "./hero-coach";
+export { HandReviewService } from "./hand-review";
 export {
   getTrainingTableRuntime,
   TrainingRuntimeError,
@@ -35,6 +36,7 @@ export type {
   BotSeatView,
   BotStyle,
   HeroCoachView,
+  HandReviewView,
   PublicHandState,
   RuntimePublicEvent,
   TrainingTableSnapshot
