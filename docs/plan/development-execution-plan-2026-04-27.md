@@ -344,6 +344,8 @@ Codex 任务：
 
 目标：用户能通过 Web UI 完成训练桌主流程。
 
+状态：**COMPLETED 2026-04-29**
+
 Codex 任务：
 
 1. 实现训练牌桌创建页：
@@ -375,6 +377,19 @@ Codex 任务：
 - AI 建议失败、超时、解析失败或存储失败时清楚显示未扣点。
 - partial 结果必须清楚显示未形成正式建议且未扣点。
 - `360 x 740`、`390 x 844`、`430 x 932` 下行动按钮不被 bottom sheet 遮挡。
+
+完成记录：
+
+- 已将首页从 M0 占位入口替换为 M5 可交互训练桌 UI，包含训练牌桌创建表单、实时牌桌、座位压缩状态、用户席位、行动区、AI 教练面板和手牌摘要。
+- 已接入 M3/M4 控制面：`POST /api/training/tables` 创建 4/6/9/12 人桌，`GET /events` 订阅 SSE 快照，`POST /actions` 提交规则引擎合法动作，`POST /coach` 请求行动前 AI 教练建议，`POST /next-hand` 开始下一手。
+- `ActionTray` 只渲染当前 public snapshot 暴露的合法动作，并提供下注/加注滑杆、快捷尺度和精确输入；AI 建议请求中会禁用行动按钮，匹配决策点冻结语义。
+- `CoachPanel` 标题包含 `AI 教练视角`，并覆盖 available、requesting、saved_charged、pending_persistence、failed_not_charged、partial_not_final 和 already_requested 展示状态；失败、partial 和存储异常文案均明确未扣点，未使用绝对化 solver 文案。
+- 已实现手牌结束摘要、行动摘要 details 和下一手入口，作为 M6 历史/回放前的基础复盘入口。
+- Review follow-up: 侧栏 `CoachPanel` 在用户行动提交中同步禁用并由 `requestCoach` 二次 guard，避免和 `/actions` 并发锁住旧决策点；新建牌桌后的 SSE 订阅从 `after=0` 回放首手公开事件，且 `runtime_snapshot` 只更新快照、不写入行动摘要。
+- 已新增移动端 12 人桌压缩布局：非关键座位压缩为小状态 token，用户席位保持展开，行动区固定在底部，教练面板留在行动区之后，避免遮挡唯一可见行动按钮。
+- 已更新 `CURRENT_TRAINING_MILESTONE` 为 `M5`。
+- 验证命令：`npm run typecheck`、`npm run format:write`、`npm run lint`、`npm test`、`npm run build`、`curl http://127.0.0.1:3000/health`、首页 HTML M5 内容检查；review follow-up 追加验证 `npm test -- src/app/api/training/tables/[tableId]/events/route.test.ts src/server/training-runtime/index.test.ts`、`npx prettier --check src/components/training-entry.tsx`。
+- 浏览器自动化截图未执行：当前 gstack browse 工具需要一次性构建，且仓库已有 Next dev server 占用 3000 时 Next 阻止同仓库第二个 dev server；本次以构建、类型、测试和本地 HTTP smoke test 作为最小验证。
 
 ## M6：复盘、历史与回放基础
 

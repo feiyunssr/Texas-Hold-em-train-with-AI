@@ -1,117 +1,681 @@
 .trainingEntry {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 360px;
-  gap: var(--space-8);
-  min-height: 100vh;
-  padding: var(--space-8);
-  align-items: center;
-}
-
-.tablePreview {
-  display: grid;
-  place-items: center;
-  min-height: 520px;
-}
-
-.tableRail {
-  display: grid;
-  place-items: center;
   gap: var(--space-4);
-  width: min(100%, 760px);
-  aspect-ratio: 1.8;
-  border: 18px solid var(--color-table-rail);
-  border-radius: 999px;
-  background: var(--color-table-felt);
-  color: var(--color-text-inverse);
+  min-height: 100vh;
+  padding: var(--space-4);
 }
 
-.communityCards {
+.workspaceHeader {
   display: flex;
-  gap: var(--space-2);
+  align-items: end;
+  justify-content: space-between;
+  gap: var(--space-4);
 }
 
-.communityCards span {
-  display: grid;
-  place-items: center;
-  width: 54px;
-  height: 76px;
-  border-radius: var(--radius-control);
-  background: var(--color-surface-panel);
-  color: var(--color-text-primary);
-  font-size: 18px;
-  font-weight: 700;
+.workspaceHeader h1 {
+  margin: 0;
+  font-size: 22px;
+  line-height: 30px;
 }
 
-.potLabel {
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-control);
-  background: rgb(23 56 43 / 70%);
-  font-size: 16px;
-  line-height: 20px;
-}
-
-.entryPanel {
-  border: 1px solid var(--color-border-default);
-  border-radius: var(--radius-panel);
-  background: var(--color-surface-panel);
-  padding: var(--space-6);
-}
-
-.eyebrow {
-  margin: 0 0 var(--space-2);
+.eyebrow,
+.sectionLabel {
+  display: block;
+  margin: 0 0 var(--space-1);
   color: var(--color-coach-accent);
   font-size: 12px;
   font-weight: 700;
   line-height: 16px;
 }
 
-.entryPanel h1 {
-  margin: 0;
-  font-size: 22px;
-  line-height: 30px;
+.syncStatus,
+.chargePill,
+.streetPill {
+  min-height: 28px;
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-panel);
+  padding: var(--space-1) var(--space-2);
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 18px;
 }
 
-.summary {
-  margin: var(--space-3) 0 var(--space-6);
+.trainingWorkspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.tableColumn,
+.sideRail {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.tableConfigurator {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(88px, 1fr));
+  gap: var(--space-2);
+  align-items: end;
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-panel);
+  background: var(--color-surface-panel);
+  padding: var(--space-3);
+}
+
+.tableConfigurator label,
+.sizingControls label {
+  display: grid;
+  gap: var(--space-1);
   color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 16px;
+}
+
+.tableConfigurator input,
+.tableConfigurator select,
+.amountInput {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-panel);
+  color: var(--color-text-primary);
+  padding: var(--space-2);
+}
+
+.toggleField {
+  grid-auto-flow: column;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  min-height: 44px;
+}
+
+.toggleField input {
+  width: 18px;
+  min-height: 18px;
+}
+
+.tableStage {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.opponentRail {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(118px, 1fr));
+  gap: var(--space-2);
+}
+
+.seatToken {
+  display: grid;
+  gap: var(--space-2);
+  min-height: 96px;
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-panel);
+  padding: var(--space-2);
+}
+
+.heroSeatToken {
+  border-color: var(--color-action-primary);
+}
+
+.currentSeatToken {
+  outline: 3px solid rgb(217 119 6 / 32%);
+}
+
+.foldedSeatToken {
+  opacity: 0.58;
+}
+
+.seatTopline,
+.seatFacts,
+.seatMarkers {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.seatTopline strong {
+  overflow: hidden;
+  font-size: 14px;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.avatar {
+  display: grid;
+  flex: 0 0 28px;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--color-surface-subtle);
+  color: var(--color-text-primary);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.seatFacts,
+.seatMarkers {
+  flex-wrap: wrap;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.seatMarkers span {
+  border-radius: var(--radius-control);
+  background: var(--color-surface-subtle);
+  padding: 2px 6px;
+}
+
+.pokerTable {
+  display: grid;
+  place-items: center;
+  min-height: 440px;
+  border: 18px solid var(--color-table-rail);
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at center, rgb(255 255 255 / 7%), transparent 42%),
+    var(--color-table-felt);
+  color: var(--color-text-inverse);
+}
+
+.tableCenter {
+  display: grid;
+  place-items: center;
+  gap: var(--space-4);
+  width: min(92%, 560px);
+  text-align: center;
+}
+
+.tableCenter .streetPill {
+  border-color: rgb(255 255 255 / 18%);
+  background: rgb(23 56 43 / 86%);
+  color: var(--color-text-inverse);
+}
+
+.cardRow {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-2);
+}
+
+.playingCard {
+  display: grid;
+  place-items: center;
+  width: 54px;
+  height: 76px;
+  border: 1px solid rgb(0 0 0 / 10%);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-panel);
+  color: var(--color-text-primary);
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 20px;
+}
+
+.redCard {
+  color: var(--color-danger);
+}
+
+.emptyCard {
+  border-style: dashed;
+  background: rgb(255 255 255 / 18%);
+  color: rgb(248 250 247 / 68%);
+}
+
+.potGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(96px, 1fr));
+  gap: var(--space-2);
+  width: 100%;
+}
+
+.potGrid div {
+  display: grid;
+  gap: var(--space-1);
+  min-height: 58px;
+  border: 1px solid rgb(255 255 255 / 16%);
+  border-radius: var(--radius-control);
+  background: rgb(23 56 43 / 76%);
+  padding: var(--space-2);
+}
+
+.potGrid span {
+  color: rgb(248 250 247 / 72%);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.potGrid strong {
+  overflow: hidden;
+  font-size: 16px;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.heroZone,
+.actionTray,
+.coachPanel,
+.handSummary {
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-panel);
+  background: var(--color-surface-panel);
+  padding: var(--space-4);
+}
+
+.heroZone {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.heroZone strong,
+.actionTray strong {
+  font-size: 18px;
+  line-height: 28px;
+}
+
+.heroZone p,
+.coachMessage,
+.errorDetail,
+.riskNote {
+  margin: var(--space-1) 0 0;
+  color: var(--color-text-secondary);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.actionTray {
+  display: grid;
+  gap: var(--space-3);
+  position: sticky;
+  bottom: var(--space-3);
+  z-index: 5;
+  box-shadow: 0 12px 26px rgb(23 32 27 / 12%);
+}
+
+.sizingControls {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.sliderRow {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) 112px;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.sliderRow input[type="range"] {
+  width: 100%;
+  accent-color: var(--color-action-primary);
+}
+
+.quickSizes,
+.actionButtons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+button {
+  min-height: 44px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  cursor: pointer;
+  font-weight: 800;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.56;
+}
+
+.primaryButton,
+.dangerButton,
+.coachButton {
+  padding: var(--space-2) var(--space-3);
+}
+
+.primaryButton {
+  background: var(--color-action-primary);
+  color: var(--color-text-inverse);
+}
+
+.primaryButton:hover:not(:disabled) {
+  background: var(--color-action-primary-hover);
+}
+
+.dangerButton {
+  background: #fff5f5;
+  border-color: #fecaca;
+  color: var(--color-danger);
+}
+
+.coachButton {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: var(--color-coach-accent);
+}
+
+.quickSizes button {
+  background: var(--color-surface-subtle);
+  color: var(--color-text-primary);
+  padding: var(--space-2);
+}
+
+.fullWidthButton {
+  width: 100%;
+}
+
+.notice {
+  margin: 0;
+  border: 1px solid #fed7aa;
+  border-radius: var(--radius-control);
+  background: #fff7ed;
+  color: var(--color-warning);
+  padding: var(--space-3);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.panelHeader {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.panelHeader h2 {
+  margin: 0;
+  font-size: 18px;
+  line-height: 28px;
+}
+
+.coachPanel {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.coachState-saved_charged {
+  border-color: rgb(21 128 61 / 46%);
+}
+
+.coachState-failed_not_charged,
+.coachState-partial_not_final {
+  border-color: rgb(180 83 9 / 42%);
+}
+
+.adviceView {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.adviceView > div {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.adviceView span {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 16px;
+}
+
+.adviceView strong {
   font-size: 16px;
   line-height: 24px;
 }
 
-.configList {
+.adviceBlock ul,
+.replayDetails ol {
   display: grid;
-  gap: var(--space-3);
+  gap: var(--space-2);
+  margin: var(--space-1) 0 0;
+  padding-left: 20px;
+  color: var(--color-text-secondary);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.partialPreview {
+  overflow: auto;
+  max-height: 180px;
+  border-radius: var(--radius-control);
+  background: var(--color-surface-subtle);
+  padding: var(--space-3);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.errorDetail {
+  color: var(--color-warning);
+}
+
+.coachConfigList,
+.summaryRows {
+  display: grid;
+  gap: var(--space-2);
   margin: 0;
 }
 
-.configList div {
+.coachConfigList div,
+.summaryRows div {
   display: flex;
   justify-content: space-between;
-  gap: var(--space-4);
+  gap: var(--space-2);
+  border-top: 1px solid var(--color-border-default);
+  padding-top: var(--space-2);
+}
+
+.coachConfigList dt,
+.summaryRows span {
+  color: var(--color-text-secondary);
+}
+
+.coachConfigList dd {
+  margin: 0;
+  font-weight: 800;
+}
+
+.handSummary {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.replayDetails {
   border-top: 1px solid var(--color-border-default);
   padding-top: var(--space-3);
 }
 
-.configList dt {
-  color: var(--color-text-secondary);
+.replayDetails summary {
+  min-height: 44px;
+  cursor: pointer;
+  color: var(--color-text-primary);
+  font-weight: 800;
+  line-height: 44px;
 }
 
-.configList dd {
-  margin: 0;
-  font-weight: 700;
-}
-
-@media (max-width: 840px) {
-  .trainingEntry {
+@media (max-width: 1180px) {
+  .trainingWorkspace {
     grid-template-columns: 1fr;
-    padding: var(--space-4);
   }
 
-  .tablePreview {
-    min-height: 300px;
+  .sideRail {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .entryPanel {
-    padding: var(--space-4);
+  .tableConfigurator {
+    grid-template-columns: repeat(4, minmax(104px, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .trainingEntry {
+    padding: var(--space-3);
+    padding-bottom: 220px;
+  }
+
+  .workspaceHeader {
+    align-items: start;
+    flex-direction: column;
+  }
+
+  .trainingWorkspace,
+  .sideRail {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .tableConfigurator {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .tableConfigurator .primaryButton {
+    grid-column: 1 / -1;
+  }
+
+  .opponentRail {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(54px, 1fr));
+    gap: 6px;
+    order: 1;
+  }
+
+  .seatToken {
+    min-height: 58px;
+    padding: 6px;
+  }
+
+  .seatTopline {
+    justify-content: center;
+  }
+
+  .seatTopline strong,
+  .seatFacts span:nth-child(3),
+  .seatMarkers {
+    display: none;
+  }
+
+  .avatar {
+    width: 32px;
+    height: 32px;
+  }
+
+  .seatFacts {
+    justify-content: center;
+    gap: 4px;
+    font-size: 11px;
+    line-height: 14px;
+  }
+
+  .pokerTable {
+    min-height: 260px;
+    border-width: 10px;
+    border-radius: 48px;
+    order: 2;
+  }
+
+  .tableCenter {
+    width: 94%;
+    gap: var(--space-2);
+  }
+
+  .playingCard {
+    width: 42px;
+    height: 58px;
+    font-size: 15px;
+  }
+
+  .potGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .potGrid div {
+    min-height: 52px;
+  }
+
+  .heroZone {
+    order: 3;
+    padding: var(--space-3);
+  }
+
+  .heroZone .playingCard {
+    width: 48px;
+    height: 66px;
+  }
+
+  .actionTray {
+    position: fixed;
+    right: var(--space-3);
+    bottom: var(--space-3);
+    left: var(--space-3);
+    padding: var(--space-3);
+  }
+
+  .sliderRow {
+    grid-template-columns: 1fr 92px;
+  }
+
+  .actionButtons {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .quickSizes {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    padding-bottom: 2px;
+  }
+
+  .quickSizes button {
+    flex: 0 0 auto;
+  }
+
+  .coachPanel {
+    position: relative;
+    margin-top: var(--space-2);
+  }
+}
+
+@media (max-width: 380px) {
+  .trainingEntry {
+    padding-right: var(--space-2);
+    padding-left: var(--space-2);
+  }
+
+  .opponentRail {
+    grid-template-columns: repeat(4, minmax(54px, 1fr));
+  }
+
+  .tableConfigurator {
+    grid-template-columns: 1fr;
+  }
+
+  .cardRow {
+    gap: 6px;
+  }
+
+  .playingCard {
+    width: 38px;
+  }
+
+  .actionButtons {
+    grid-template-columns: 1fr;
   }
 }

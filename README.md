@@ -107,3 +107,15 @@ M0 已建立 Next.js App Router + TypeScript 单体仓库基础：
 - `POST /api/training/tables/:tableId/coach` 请求一次行动前建议，请求体必须包含 `requestId`、`userId`、`walletAccountId` 和正整数 `chargeAmount`；运行时训练桌会先补齐 Prisma `table_config`、`table_seat_profile` 和 `hand` 后再保存教练资产。
 - 同一 `decisionPointId` 在运行时只允许一次正式请求；请求处理中会锁定当前决策点，防止重复请求或同时提交用户动作。
 - 成功结果返回 `saved_charged`，同一 `requestId` 重试返回相同 advice 形状；timeout、provider error、schema failure、storage failure 和非法扣点金额返回 `failed_not_charged`；partial 输出返回 `partial_not_final` 且不写入账务流水。
+
+## v1 UI 主航道
+
+当前 M5 已接入可交互 Web UI：
+
+- 首页即训练桌工作台，不再是占位或营销页。
+- 顶部创建表单支持人数、盲注、起始筹码、ante、straddle 和 AI 风格分布。
+- 实时牌桌展示公共牌、主池、边池、当前街道、当前行动者、座位状态、筹码、本街投入、AI 风格和 button/blind 标记。
+- `ActionTray` 只显示当前规则引擎返回的合法动作，并提供下注/加注滑杆、快捷尺度和精确输入。
+- `AI 教练视角` 面板展示 available、requesting、saved charged、pending persistence、failed not charged、partial not final 和 already requested 状态；失败和 partial 明确显示未扣点。
+- 手牌结束后显示结算摘要、行动摘要和下一手入口。
+- 移动端按 12 人桌压缩布局组织座位、桌面、用户席位、行动区和教练面板，行动按钮固定在底部可触达。

@@ -6,6 +6,19 @@ No open documentation TODOs.
 
 ## Completed
 
+### 2026-04-29: Resolve M5 UI review findings
+
+- **Result:** Completed in [`src/components/training-entry.tsx`](src/components/training-entry.tsx).
+- **Closed by:** Disabled and guarded side-rail AI coach requests while an action submission is in flight, and changed initial SSE subscription handling so the first hand replays public events into the action summary without storing the synthetic runtime snapshot.
+- **Validation:** `npm run typecheck`, `npm test -- src/app/api/training/tables/[tableId]/events/route.test.ts src/server/training-runtime/index.test.ts`, `npm run lint`, `npx prettier --check src/components/training-entry.tsx`, `npm test`, and `npm run build`.
+
+### 2026-04-29: Complete M5 v1 UI main flow
+
+- **Result:** Completed in [`src/components/training-entry.tsx`](src/components/training-entry.tsx), [`src/components/training-entry.css`](src/components/training-entry.css), and [`src/domain/training/index.ts`](src/domain/training/index.ts).
+- **Closed by:** Replaced the placeholder entry with a live training table UI for table creation, public table state, legal-action controls, bet sizing, AI coach request states, hand summary, next-hand entry, and mobile 12-seat compression.
+- **Validation:** `npm run typecheck`, `npm run format:write`, `npm run lint`, `npm test`, `npm run build`, `/health` curl check, and homepage M5 HTML smoke check.
+- **Note:** Automated browser screenshots were not run because gstack browse requires one-time setup in this environment; an existing Next dev server on port 3000 served the updated M5 page for HTTP smoke validation.
+
 ### 2026-04-28: Resolve M4 coach API review findings
 
 - **Result:** Completed in [`src/app/api/training/tables/[tableId]/coach`](src/app/api/training/tables/[tableId]/coach), [`src/server/hero-coach`](src/server/hero-coach), [`src/ai/hero-coach.ts`](src/ai/hero-coach.ts), and [`src/server/training-runtime`](src/server/training-runtime).
