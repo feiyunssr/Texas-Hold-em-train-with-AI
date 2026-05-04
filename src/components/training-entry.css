@@ -166,6 +166,16 @@
   line-height: 16px;
 }
 
+.seatAction {
+  overflow: hidden;
+  color: var(--color-text-primary);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .seatMarkers span {
   border-radius: var(--radius-control);
   background: var(--color-surface-subtle);
@@ -297,8 +307,42 @@
   white-space: nowrap;
 }
 
+.displayPots {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2);
+  width: 100%;
+}
+
+.displayPots div {
+  display: grid;
+  gap: 2px;
+  min-height: 62px;
+  border: 1px solid rgb(255 255 255 / 14%);
+  border-radius: var(--radius-control);
+  background: rgb(12 38 29 / 70%);
+  padding: var(--space-2);
+}
+
+.displayPots span,
+.displayPots small {
+  overflow: hidden;
+  color: rgb(248 250 247 / 70%);
+  font-size: 11px;
+  line-height: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.displayPots strong {
+  color: var(--color-text-inverse);
+  font-size: 14px;
+  line-height: 18px;
+}
+
 .heroZone,
 .actionTray,
+.actionLine,
 .coachPanel,
 .handSummary,
 .historyPanel {
@@ -313,6 +357,46 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-4);
+}
+
+.heroPressureGrid,
+.actionPressure {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.heroPressureGrid {
+  grid-template-columns: repeat(4, minmax(72px, 1fr));
+  flex: 1 1 auto;
+  min-width: 280px;
+}
+
+.heroPressureGrid div,
+.actionPressure div {
+  display: grid;
+  gap: 2px;
+  min-height: 48px;
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-subtle);
+  padding: var(--space-2);
+}
+
+.heroPressureGrid span,
+.actionPressure span,
+.sizingMeta span {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.heroPressureGrid strong,
+.actionPressure strong {
+  overflow: hidden;
+  font-size: 15px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .heroZone strong,
@@ -340,8 +424,18 @@
   box-shadow: 0 12px 26px rgb(23 32 27 / 12%);
 }
 
+.actionPressure {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
 .sizingControls {
   display: grid;
+  gap: var(--space-2);
+}
+
+.sizingMeta {
+  display: flex;
+  justify-content: space-between;
   gap: var(--space-2);
 }
 
@@ -420,6 +514,78 @@ button:disabled {
   background: var(--color-surface-subtle);
   color: var(--color-text-primary);
   padding: var(--space-2);
+}
+
+.actionLine {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.actionLineHeader {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.actionLineHeader strong {
+  display: block;
+  font-size: 16px;
+  line-height: 24px;
+}
+
+.streetActionGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.streetActionGrid div {
+  display: grid;
+  gap: var(--space-1);
+  min-height: 58px;
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-subtle);
+  padding: var(--space-2);
+}
+
+.streetActionGrid span {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 16px;
+}
+
+.streetActionGrid strong {
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fullActionLog {
+  border-top: 1px solid var(--color-border-default);
+  padding-top: var(--space-2);
+}
+
+.fullActionLog summary {
+  min-height: 36px;
+  cursor: pointer;
+  color: var(--color-text-primary);
+  font-weight: 800;
+  line-height: 36px;
+}
+
+.fullActionLog ol {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding-left: 20px;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  line-height: 18px;
 }
 
 .fullWidthButton {
@@ -732,6 +898,7 @@ button:disabled {
 
   .seatTopline strong,
   .seatFacts span:nth-child(3),
+  .seatAction,
   .seatMarkers {
     display: none;
   }
@@ -774,9 +941,24 @@ button:disabled {
     min-height: 52px;
   }
 
+  .displayPots {
+    grid-template-columns: 1fr;
+  }
+
+  .displayPots div {
+    min-height: 48px;
+  }
+
   .heroZone {
+    display: grid;
+    grid-template-columns: 1fr;
     order: 2;
     padding: var(--space-3);
+  }
+
+  .heroPressureGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    min-width: 0;
   }
 
   .heroZone .playingCard {
@@ -794,6 +976,10 @@ button:disabled {
 
   .sliderRow {
     grid-template-columns: 1fr 92px;
+  }
+
+  .actionPressure {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .actionButtons {
@@ -814,6 +1000,14 @@ button:disabled {
   .coachPanel {
     position: relative;
     margin-top: var(--space-2);
+  }
+
+  .streetActionGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .actionLineHeader {
+    display: grid;
   }
 }
 

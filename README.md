@@ -14,6 +14,7 @@
 - [设计方案复审（2026-04-24 follow-up）](docs/plan/plan-design-review-followup-2026-04-24.md)
 - [工程方案复核：UI 设计约束（2026-04-24）](docs/plan/plan-eng-review-ui-followup-2026-04-24.md)
 - [开发执行计划（2026-04-27）](docs/plan/development-execution-plan-2026-04-27.md)
+- [GGpoker 对标牌局增强开发计划（2026-05-04）](docs/plan/ggpoker-style-feature-development-plan-2026-05-04.md)
 - [TODOs](TODOS.md)
 
 ## 运行配置

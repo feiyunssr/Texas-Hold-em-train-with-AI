@@ -9,6 +9,7 @@ import type { AiCoachConfig } from "@/ai/config";
 import type { ActionType, CardCode, LegalAction } from "@/domain/poker";
 import type {
   BotStyle,
+  PublicActionSummary,
   PublicSeatState,
   RuntimePublicEvent,
   TrainingTableCreateInput,
@@ -767,7 +768,7 @@ export function TrainingEntry({ coachConfig }: TrainingEntryProps) {
     <section className="trainingEntry" aria-labelledby="training-entry-title">
       <div className="workspaceHeader">
         <div>
-          <p className="eyebrow">M5 v1 UI 主航道</p>
+          <p className="eyebrow">M7 牌桌信息密度</p>
           <h1 id="training-entry-title">AI 德州扑克训练桌</h1>
         </div>
         <div className="syncStatus" aria-live="polite">
@@ -1010,14 +1011,14 @@ function PokerTable({ snapshot }: { snapshot: TrainingTableSnapshot | null }) {
           <CardRow cards={snapshot?.hand.board ?? []} emptyCount={5} />
           <div className="potGrid">
             <div>
-              <span>主池</span>
+              <span>总底池</span>
               <strong>
                 {snapshot ? formatChips(snapshot.hand.potTotal) : "-"}
               </strong>
             </div>
             <div>
-              <span>边池</span>
-              <strong>{snapshot ? sidePotCopy(snapshot) : "-"}</strong>
+              <span>可赢底池</span>
+              <strong>{snapshot ? eligiblePotCopy(snapshot) : "-"}</strong>
             </div>
             <div>
               <span>当前下注</span>
@@ -1030,9 +1031,84 @@ function PokerTable({ snapshot }: { snapshot: TrainingTableSnapshot | null }) {
               <strong>{currentActorCopy(snapshot)}</strong>
             </div>
           </div>
+          {snapshot ? <DisplayPots snapshot={snapshot} /> : null}
         </div>
       </div>
       <HeroZone snapshot={snapshot} />
+      <ActionLine snapshot={snapshot} />
+    </section>
+  );
+}
+
+function DisplayPots({ snapshot }: { snapshot: TrainingTableSnapshot }) {
+  const visiblePots =
+    snapshot.hand.displayPots.length > 0
+      ? snapshot.hand.displayPots
+      : [
+          {
+            label: "主池",
+            amount: snapshot.hand.potTotal,
+            eligibleSeatIndexes: [],
+            winnerSeatIndexes: [],
+            share: null,
+            oddChips: 0
+          }
+        ];
+
+  return (
+    <div className="displayPots" aria-label="底池明细">
+      {visiblePots.slice(0, 3).map((pot) => (
+        <div key={`${pot.label}-${pot.amount}`}>
+          <span>{pot.label}</span>
+          <strong>{formatChips(pot.amount)}</strong>
+          <small>{potDisplayDetail(pot)}</small>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ActionLine({ snapshot }: { snapshot: TrainingTableSnapshot | null }) {
+  const summaries = snapshot?.hand.streetActionSummary ?? [];
+
+  return (
+    <section className="actionLine" aria-label="按街道行动线">
+      <div className="actionLineHeader">
+        <div>
+          <span className="sectionLabel">动作线</span>
+          <strong>{lastActionCopy(snapshot?.hand.lastAction ?? null)}</strong>
+        </div>
+        <span className="streetPill">
+          {snapshot ? `${summaries.length} 街有记录` : "等待行动"}
+        </span>
+      </div>
+      <div className="streetActionGrid">
+        {summaries.length > 0 ? (
+          summaries.map((summary) => (
+            <div key={summary.street}>
+              <span>{STREET_LABELS[summary.street]}</span>
+              <strong>{streetActionCopy(summary.actions)}</strong>
+            </div>
+          ))
+        ) : (
+          <div>
+            <span>翻前</span>
+            <strong>创建牌桌后显示公开行动</strong>
+          </div>
+        )}
+      </div>
+      {summaries.some((summary) => summary.actions.length > 0) ? (
+        <details className="fullActionLog">
+          <summary>展开完整公开动作</summary>
+          <ol>
+            {summaries.flatMap((summary) =>
+              summary.actions.map((action) => (
+                <li key={action.sequence}>{publicActionCopy(action)}</li>
+              ))
+            )}
+          </ol>
+        </details>
+      ) : null}
     </section>
   );
 }
@@ -1071,12 +1147,18 @@ function SeatToken({
         <span>{statusLabel(seat.status)}</span>
         <span>{STYLE_LABELS[seat.style]}</span>
       </div>
+      <div className="seatAction">
+        {seat.lastAction ? publicActionBrief(seat.lastAction) : "暂无行动"}
+      </div>
       <div className="seatMarkers">
         {markers.map((marker) => (
           <span key={marker}>{marker}</span>
         ))}
         {seat.streetCommitment > 0 ? (
           <span>本街 {formatChips(seat.streetCommitment)}</span>
+        ) : null}
+        {seat.totalCommitment > 0 ? (
+          <span>总投 {formatChips(seat.totalCommitment)}</span>
         ) : null}
       </div>
     </div>
@@ -1109,6 +1191,14 @@ function seatPositionStyle(
 
 function HeroZone({ snapshot }: { snapshot: TrainingTableSnapshot | null }) {
   const hero = snapshot?.hand.seats.find((seat) => seat.isHero);
+  const pressureItems = snapshot
+    ? [
+        ["待跟注", formatChips(snapshot.hand.toCall)],
+        ["底池赔率", potOddsCopy(snapshot.hand.toCall, snapshot.hand.potTotal)],
+        ["最小加注到", nullableChips(snapshot.hand.minRaiseTo)],
+        ["有效筹码", formatChips(snapshot.hand.effectiveStack)]
+      ]
+    : [];
 
   return (
     <section className="heroZone" aria-label="用户席位">
@@ -1121,6 +1211,16 @@ function HeroZone({ snapshot }: { snapshot: TrainingTableSnapshot | null }) {
             : "创建训练桌后显示底牌和行动压力。"}
         </p>
       </div>
+      {pressureItems.length > 0 ? (
+        <div className="heroPressureGrid" aria-label="Hero 行动压力">
+          {pressureItems.map(([label, value]) => (
+            <div key={label}>
+              <span>{label}</span>
+              <strong>{value}</strong>
+            </div>
+          ))}
+        </div>
+      ) : null}
       <CardRow cards={hero?.holeCards ?? []} emptyCount={2} />
     </section>
   );
@@ -1183,10 +1283,13 @@ function ActionTray({
         <span className="sectionLabel">行动区</span>
         <strong>{actionTrayTitle(snapshot)}</strong>
       </div>
+      <ActionPressure snapshot={snapshot} />
       {betLikeAction ? (
         <BetSizingControls
           action={betLikeAction}
           potTotal={snapshot?.hand.potTotal ?? 0}
+          bigBlind={snapshot?.config.bigBlind ?? 1}
+          street={snapshot?.hand.street ?? "preflop"}
           selectedAmount={selectedAmount}
           onAmountChange={onAmountChange}
         />
@@ -1219,29 +1322,79 @@ function ActionTray({
   );
 }
 
+function ActionPressure({
+  snapshot
+}: {
+  snapshot: TrainingTableSnapshot | null;
+}) {
+  const rows = snapshot
+    ? [
+        ["待跟注", formatChips(snapshot.hand.toCall)],
+        ["底池赔率", potOddsCopy(snapshot.hand.toCall, snapshot.hand.potTotal)],
+        ["最小加注到", nullableChips(snapshot.hand.minRaiseTo)],
+        ["最大可下注", nullableChips(snapshot.hand.maxBetAmount)],
+        ["有效筹码", formatChips(snapshot.hand.effectiveStack)]
+      ]
+    : [
+        ["待跟注", "-"],
+        ["底池赔率", "-"],
+        ["最小加注到", "-"],
+        ["最大可下注", "-"],
+        ["有效筹码", "-"]
+      ];
+
+  return (
+    <div className="actionPressure" aria-label="行动压力摘要">
+      {rows.map(([label, value]) => (
+        <div key={label}>
+          <span>{label}</span>
+          <strong>{value}</strong>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function BetSizingControls({
   action,
   potTotal,
+  bigBlind,
+  street,
   selectedAmount,
   onAmountChange
 }: {
   action: LegalAction;
   potTotal: number;
+  bigBlind: number;
+  street: TrainingTableSnapshot["hand"]["street"];
   selectedAmount: number;
   onAmountChange: (amount: number) => void;
 }) {
   const min = action.minAmount ?? action.amount ?? 0;
   const max = action.maxAmount ?? action.amount ?? min;
-  const quickSizes = [
+  const potQuickSizes = [
     ["1/3 池", Math.round(potTotal / 3)],
     ["1/2 池", Math.round(potTotal / 2)],
     ["2/3 池", Math.round((potTotal * 2) / 3)],
     ["池", potTotal],
     ["全下", max]
   ] as const;
+  const preflopQuickSizes = [
+    ["2.2BB", Math.round(bigBlind * 2.2)],
+    ["2.5BB", Math.round(bigBlind * 2.5)],
+    ["3BB", bigBlind * 3]
+  ] as const;
+  const quickSizes =
+    street === "preflop"
+      ? [...preflopQuickSizes, ...potQuickSizes.slice(-1)]
+      : potQuickSizes;
 
   return (
     <div className="sizingControls">
+      <div className="sizingMeta">
+        <span>最小 {formatChips(min)}</span>
+        <span>最大 {formatChips(max)}</span>
+      </div>
       <div className="sliderRow">
         <input
           type="range"
@@ -2072,14 +2225,86 @@ function currentActorCopy(snapshot: TrainingTableSnapshot | null): string {
   return seat ? `${seat.displayName} · 座位 ${seat.seatIndex + 1}` : "-";
 }
 
-function sidePotCopy(snapshot: TrainingTableSnapshot): string {
-  const sidePots = snapshot.hand.pots.slice(1);
-
-  if (sidePots.length === 0) {
-    return "无";
+function eligiblePotCopy(snapshot: TrainingTableSnapshot): string {
+  const heroSeat = snapshot.hand.seats.find((seat) => seat.isHero);
+  if (!heroSeat) {
+    return "-";
   }
 
-  return sidePots.map((pot) => formatChips(pot.amount)).join(" / ");
+  const eligibleTotal = snapshot.hand.displayPots
+    .filter(
+      (pot) =>
+        pot.eligibleSeatIndexes.length === 0 ||
+        pot.eligibleSeatIndexes.includes(heroSeat.seatIndex)
+    )
+    .reduce((sum, pot) => sum + pot.amount, 0);
+
+  return formatChips(eligibleTotal || snapshot.hand.potTotal);
+}
+
+function potDisplayDetail(
+  pot: TrainingTableSnapshot["hand"]["displayPots"][number]
+): string {
+  if (pot.winnerSeatIndexes.length > 0) {
+    return `归属 座位 ${pot.winnerSeatIndexes
+      .map((seatIndex) => seatIndex + 1)
+      .join(", ")}${pot.oddChips > 0 ? ` · odd ${pot.oddChips}` : ""}`;
+  }
+
+  if (pot.eligibleSeatIndexes.length > 0) {
+    return `可赢 座位 ${pot.eligibleSeatIndexes
+      .map((seatIndex) => seatIndex + 1)
+      .join(", ")}`;
+  }
+
+  return "等待投入";
+}
+
+function streetActionCopy(actions: PublicActionSummary[]): string {
+  if (actions.length === 0) {
+    return "无公开行动";
+  }
+
+  return actions.slice(-4).map(publicActionBrief).join(" / ");
+}
+
+function publicActionCopy(action: PublicActionSummary): string {
+  return `${STREET_LABELS[action.street]} #${action.sequence} · 座位 ${
+    action.seatIndex + 1
+  } ${ACTION_LABELS[action.action]} ${formatChips(action.amount)}${
+    action.totalBetTo > 0 ? ` · 到 ${formatChips(action.totalBetTo)}` : ""
+  }`;
+}
+
+function publicActionBrief(action: PublicActionSummary): string {
+  return `S${action.seatIndex + 1} ${ACTION_LABELS[action.action]}${
+    action.amount > 0 ? ` ${formatChips(action.amount)}` : ""
+  }`;
+}
+
+function lastActionCopy(action: PublicActionSummary | null): string {
+  if (!action) {
+    return "暂无公开行动";
+  }
+
+  return `最近：${publicActionBrief(action)}`;
+}
+
+function potOddsCopy(toCall: number, potTotal: number): string {
+  if (toCall <= 0) {
+    return "0%";
+  }
+
+  const denominator = potTotal + toCall;
+  if (denominator <= 0) {
+    return "-";
+  }
+
+  return `${Math.round((toCall / denominator) * 100)}%`;
+}
+
+function nullableChips(value: number | null): string {
+  return value === null ? "-" : formatChips(value);
 }
 
 function coachStatusTitle(status: CoachPanelState["status"]): string {

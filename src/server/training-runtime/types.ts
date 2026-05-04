@@ -71,6 +71,31 @@ export type PublicSeatState = {
   isButton: boolean;
   isSmallBlind: boolean;
   isBigBlind: boolean;
+  lastAction: PublicActionSummary | null;
+};
+
+export type PublicActionSummary = {
+  sequence: number;
+  street: Street;
+  seatIndex: number;
+  action: ActionType;
+  amount: number;
+  totalBetTo: number;
+};
+
+export type PublicStreetActionSummary = {
+  street: Street;
+  actions: PublicActionSummary[];
+  summary: string;
+};
+
+export type PublicDisplayPot = {
+  label: string;
+  amount: number;
+  eligibleSeatIndexes: number[];
+  winnerSeatIndexes: number[];
+  share: number | null;
+  oddChips: number;
 };
 
 export type PublicHandState = {
@@ -79,8 +104,15 @@ export type PublicHandState = {
   board: CardCode[];
   potTotal: number;
   pots: Pot[];
+  displayPots: PublicDisplayPot[];
   currentActorSeat: number | null;
   currentBet: number;
+  toCall: number;
+  minRaiseTo: number | null;
+  maxBetAmount: number | null;
+  effectiveStack: number;
+  lastAction: PublicActionSummary | null;
+  streetActionSummary: PublicStreetActionSummary[];
   legalActions: LegalAction[];
   seats: PublicSeatState[];
   completionReason: HandState["completionReason"];

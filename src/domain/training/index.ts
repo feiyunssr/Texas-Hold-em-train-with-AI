@@ -8,4 +8,4 @@ export type TrainingMilestone =
   | "M6"
   | "M7";
 
-export const CURRENT_TRAINING_MILESTONE: TrainingMilestone = "M6";
+export const CURRENT_TRAINING_MILESTONE: TrainingMilestone = "M7";

@@ -17,7 +17,10 @@ import type {
   HandReviewTimelineEvent,
   HandReviewView,
   HeroCoachView,
+  PublicActionSummary,
+  PublicDisplayPot,
   PublicHandState,
+  PublicStreetActionSummary,
   RuntimePublicEvent,
   RuntimeSeatProfile,
   SubmitUserActionInput,
@@ -986,6 +989,20 @@ function buildPublicHandState(session: RuntimeSession): PublicHandState {
   )
     ? getLegalActions(session.hand)
     : [];
+  const heroSeat = session.hand.seats[session.config.heroSeatIndex];
+  const toCall =
+    heroSeat &&
+    session.hand.street !== "complete" &&
+    heroSeat.status === "active"
+      ? Math.max(0, session.hand.currentBet - heroSeat.streetCommitment)
+      : 0;
+  const betLikeAction =
+    legalActions.find((action) => action.type === "bet") ??
+    legalActions.find((action) => action.type === "raise");
+  const maxBetAction =
+    betLikeAction ?? legalActions.find((action) => action.type === "all-in");
+  const streetActionSummary = buildStreetActionSummary(session.hand.events);
+  const lastAction = getLastPublicAction(streetActionSummary);
 
   return {
     handId: session.handId,
@@ -993,8 +1010,15 @@ function buildPublicHandState(session: RuntimeSession): PublicHandState {
     board: session.hand.board,
     potTotal: calculatePotTotal(session.hand),
     pots: session.hand.pots,
+    displayPots: buildDisplayPots(session.hand),
     currentActorSeat: session.hand.currentActorSeat,
     currentBet: session.hand.currentBet,
+    toCall,
+    minRaiseTo: betLikeAction?.totalBetTo ?? null,
+    maxBetAmount: maxBetAction?.maxAmount ?? maxBetAction?.amount ?? null,
+    effectiveStack: calculateHeroEffectiveStack(session),
+    lastAction,
+    streetActionSummary,
     legalActions,
     seats: session.hand.seats.map((seat) => {
       const profile = session.seatProfiles[seat.seatIndex];
@@ -1014,7 +1038,8 @@ function buildPublicHandState(session: RuntimeSession): PublicHandState {
             : null,
         isButton: seat.seatIndex === session.hand.buttonSeat,
         isSmallBlind: seat.seatIndex === session.hand.smallBlindSeat,
-        isBigBlind: seat.seatIndex === session.hand.bigBlindSeat
+        isBigBlind: seat.seatIndex === session.hand.bigBlindSeat,
+        lastAction: lastSeatAction(streetActionSummary, seat.seatIndex)
       };
     }),
     completionReason: session.hand.completionReason,
@@ -1023,6 +1048,171 @@ function buildPublicHandState(session: RuntimeSession): PublicHandState {
     lastSequence:
       session.publicEvents[session.publicEvents.length - 1]?.sequence ?? 0
   };
+}
+
+function buildDisplayPots(hand: HandState): PublicDisplayPot[] {
+  if (hand.pots.length === 0) {
+    const amount = calculatePotTotal(hand);
+
+    if (amount === 0) {
+      return [];
+    }
+
+    return [
+      {
+        label: "主池",
+        amount,
+        eligibleSeatIndexes: hand.seats
+          .filter((seat) => seat.status !== "folded")
+          .map((seat) => seat.seatIndex),
+        winnerSeatIndexes: [],
+        share: null,
+        oddChips: 0
+      }
+    ];
+  }
+
+  const totalPotAmount = hand.pots.reduce((sum, pot) => sum + pot.amount, 0);
+  const foldAward =
+    hand.completionReason === "fold" &&
+    hand.awards.length === 1 &&
+    hand.awards[0].potAmount === totalPotAmount
+      ? hand.awards[0]
+      : null;
+  const unmatchedAwards = [...hand.awards];
+
+  return hand.pots.map((pot, index) => {
+    const award = foldAward
+      ? {
+          ...foldAward,
+          potAmount: pot.amount,
+          share: Math.floor(pot.amount / foldAward.winnerSeatIndexes.length),
+          oddChips: pot.amount % foldAward.winnerSeatIndexes.length
+        }
+      : takeDisplayPotAward(unmatchedAwards, pot.amount);
+
+    return {
+      label: index === 0 ? "主池" : `边池 ${index}`,
+      amount: pot.amount,
+      eligibleSeatIndexes: pot.eligibleSeatIndexes,
+      winnerSeatIndexes: award?.winnerSeatIndexes ?? [],
+      share: award?.share ?? null,
+      oddChips: award?.oddChips ?? 0
+    };
+  });
+}
+
+function takeDisplayPotAward(
+  unmatchedAwards: HandState["awards"],
+  potAmount: number
+): HandState["awards"][number] | undefined {
+  const awardIndex = unmatchedAwards.findIndex(
+    (award) => award.potAmount === potAmount
+  );
+
+  if (awardIndex === -1) {
+    return undefined;
+  }
+
+  return unmatchedAwards.splice(awardIndex, 1)[0];
+}
+
+function buildStreetActionSummary(
+  events: HandEvent[]
+): PublicStreetActionSummary[] {
+  const byStreet = new Map<
+    PublicStreetActionSummary["street"],
+    PublicActionSummary[]
+  >();
+  let currentStreet: PublicStreetActionSummary["street"] = "preflop";
+
+  for (const event of events) {
+    if (event.type === "street_advanced") {
+      currentStreet = event.payload.street;
+      continue;
+    }
+
+    if (event.type !== "player_action") {
+      continue;
+    }
+
+    const actions = byStreet.get(currentStreet) ?? [];
+    actions.push({
+      sequence: event.sequence,
+      street: currentStreet,
+      seatIndex: event.payload.seatIndex,
+      action: event.payload.action,
+      amount: event.payload.amount,
+      totalBetTo: event.payload.totalBetTo
+    });
+    byStreet.set(currentStreet, actions);
+  }
+
+  return ["preflop", "flop", "turn", "river"]
+    .map((street) => {
+      const typedStreet = street as PublicStreetActionSummary["street"];
+      const actions = byStreet.get(typedStreet) ?? [];
+
+      return {
+        street: typedStreet,
+        actions,
+        summary:
+          actions.length === 0
+            ? "无公开行动"
+            : actions
+                .slice(-4)
+                .map(
+                  (action) =>
+                    `S${action.seatIndex + 1} ${action.action} ${action.amount}`
+                )
+                .join(" / ")
+      };
+    })
+    .filter(
+      (streetSummary) =>
+        streetSummary.actions.length > 0 || streetSummary.street === "preflop"
+    );
+}
+
+function getLastPublicAction(
+  streetActionSummary: PublicStreetActionSummary[]
+): PublicActionSummary | null {
+  const allActions = streetActionSummary.flatMap((summary) => summary.actions);
+
+  return allActions.at(-1) ?? null;
+}
+
+function lastSeatAction(
+  streetActionSummary: PublicStreetActionSummary[],
+  seatIndex: number
+): PublicActionSummary | null {
+  const allActions = streetActionSummary.flatMap((summary) => summary.actions);
+
+  return (
+    allActions
+      .slice()
+      .reverse()
+      .find((action) => action.seatIndex === seatIndex) ?? null
+  );
+}
+
+function calculateHeroEffectiveStack(session: RuntimeSession): number {
+  const heroSeat = session.hand.seats[session.config.heroSeatIndex];
+  if (!heroSeat || heroSeat.status !== "active") {
+    return 0;
+  }
+
+  const largestOpponentStack = Math.max(
+    0,
+    ...session.hand.seats
+      .filter(
+        (seat) =>
+          seat.seatIndex !== heroSeat.seatIndex && seat.status !== "folded"
+      )
+      .map((seat) => seat.stack)
+  );
+
+  return Math.min(heroSeat.stack, largestOpponentStack);
 }
 
 function isHeroEliminated(session: RuntimeSession): boolean {

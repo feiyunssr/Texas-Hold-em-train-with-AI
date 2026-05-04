@@ -2,9 +2,25 @@
 
 ## Open
 
-No open documentation TODOs.
+### 2026-05-04: Execute GGpoker-style table enhancement plan
+
+- **Plan:** [GGpoker 对标牌局增强开发计划](docs/plan/ggpoker-style-feature-development-plan-2026-05-04.md)
+- **Remaining scope:** Hero preflop strategy automation, opponent strategy, HUD, PokerCraft-style history, Rush/Fast-Fold training, and advanced training loops.
+- **Next milestone:** M8 Hero preflop strategy automation MVP.
 
 ## Completed
+
+### 2026-05-04: Resolve M7 display pot review findings
+
+- **Result:** Live snapshots no longer derive side pots from unequal in-progress commitments, and fold settlements now show the awarded winner and per-pot share on every settled display pot.
+- **Closed by:** Changed `displayPots` to show a single live main pot until the poker engine has settled real pots, and expanded fold total-pot awards across settled contribution-level pots in [`src/server/training-runtime`](src/server/training-runtime).
+- **Validation:** `npm test -- src/server/training-runtime/index.test.ts`, `npm run typecheck`, and targeted Prettier check.
+
+### 2026-05-04: Complete M7 table information density and action UX
+
+- **Result:** Runtime snapshots and the live training table now expose and render table pressure, action history, display pots, seat commitments, recent actions, and richer bet sizing controls.
+- **Closed by:** Added `toCall`, `minRaiseTo`, `maxBetAmount`, `effectiveStack`, `lastAction`, `streetActionSummary`, `displayPots`, and per-seat `lastAction` to [`src/server/training-runtime`](src/server/training-runtime), updated [`src/components/training-entry.tsx`](src/components/training-entry.tsx) and [`src/components/training-entry.css`](src/components/training-entry.css), and advanced the training milestone marker to M7.
+- **Validation:** `npm run typecheck`, `npm test -- src/server/training-runtime/index.test.ts`, `npm run lint`, and targeted Prettier write.
 
 ### 2026-05-04: Fix auto-continue default and scheduling
 

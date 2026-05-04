@@ -69,6 +69,95 @@ describe("training table runtime", () => {
     ).toBe(true);
   });
 
+  it("exposes M7 table pressure and action-line display fields", () => {
+    const runtime = new TrainingTableRuntime();
+    const { snapshot } = runtime.createTable(baseCreateInput(6));
+
+    expect(snapshot.hand.toCall).toBeGreaterThanOrEqual(0);
+    expect(snapshot.hand.effectiveStack).toBeGreaterThan(0);
+    expect(snapshot.hand.displayPots.length).toBeGreaterThan(0);
+    expect(snapshot.hand.displayPots[0].label).toBe("主池");
+    expect(snapshot.hand.streetActionSummary[0].street).toBe("preflop");
+    expect(snapshot.hand.maxBetAmount).toBeGreaterThan(0);
+
+    const result = runtime.submitUserAction(
+      snapshot.tableId,
+      preferPassiveAction(snapshot)
+    );
+    const acted = result.snapshot.hand.streetActionSummary.flatMap(
+      (street) => street.actions
+    );
+
+    expect(result.snapshot.hand.lastAction).toEqual(acted.at(-1));
+    expect(
+      result.snapshot.hand.seats.some((seat) => seat.lastAction !== null)
+    ).toBe(true);
+  });
+
+  it("does not derive live side pots from unmatched current commitments", () => {
+    const runtime = new TrainingTableRuntime();
+    const { snapshot } = runtime.createTable(baseCreateInput(6));
+
+    expect(snapshot.status).toBe("waiting_for_user");
+    expect(snapshot.hand.pots).toEqual([]);
+    expect(snapshot.hand.potTotal).toBe(90);
+    expect(snapshot.hand.displayPots).toEqual([
+      expect.objectContaining({
+        label: "主池",
+        amount: 90,
+        eligibleSeatIndexes: [0, 1, 2, 3, 4, 5],
+        winnerSeatIndexes: [],
+        share: null
+      })
+    ]);
+  });
+
+  it("projects fold-award winners across every settled display pot", () => {
+    const runtime = new TrainingTableRuntime();
+    const created = runtime.createTable({
+      ...baseCreateInput(4),
+      aiStyles: ["tight", "tight", "tight"] satisfies BotStyle[]
+    });
+    const raised = runtime.submitUserAction(created.snapshot.tableId, {
+      type: "raise",
+      amount: 40
+    }).snapshot;
+    const terminal = runtime.submitUserAction(raised.tableId, {
+      type: "bet",
+      amount: 20
+    }).snapshot;
+
+    expect(terminal.status).toBe("hand_complete");
+    expect(terminal.hand.completionReason).toBe("fold");
+    expect(terminal.hand.awards).toEqual([
+      expect.objectContaining({
+        potAmount: 110,
+        winnerSeatIndexes: [0],
+        share: 110
+      })
+    ]);
+    expect(terminal.hand.displayPots).toEqual([
+      expect.objectContaining({
+        label: "主池",
+        amount: 30,
+        winnerSeatIndexes: [0],
+        share: 30
+      }),
+      expect.objectContaining({
+        label: "边池 1",
+        amount: 60,
+        winnerSeatIndexes: [0],
+        share: 60
+      }),
+      expect.objectContaining({
+        label: "边池 2",
+        amount: 20,
+        winnerSeatIndexes: [0],
+        share: 20
+      })
+    ]);
+  });
+
   it("accepts a legal user action, appends public events, and keeps the hand moving", () => {
     const runtime = new TrainingTableRuntime();
     const created = runtime.createTable(baseCreateInput(4));
