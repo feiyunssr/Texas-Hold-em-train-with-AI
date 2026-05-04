@@ -105,13 +105,13 @@
 - Review follow-up：live hand 的 `displayPots` 不再从未匹配的当前投入派生边池；fold 结算的总池 award 会展开到每个已结算 display pot，保证赢家和 share 与 pot amount 一致。
 - 验证：`npm run typecheck`、`npm test -- src/server/training-runtime/index.test.ts`、`npm run lint`。
 
-### M8：翻前策略自动执行 MVP
+### M8：翻前策略自动执行
 
 - 新增 `src/domain/preflop-strategy`，实现策略配置类型、起手牌归类、上下文匹配、混合频率随机化和合法动作映射。
 - 在 runtime 中增加 Hero 自动策略执行循环，仅在 `waiting_for_user + preflop + 策略开启` 时运行，并复用现有 action submit 校验路径。
 - UI 增加策略开关、预设选择、当前命中说明、最近自动执行记录和暂停按钮。
 - 持久化策略执行事件，进入历史和回放。
-- 验收：可配置一个基础 6-max 翻前策略，Hero 翻前自动 fold/open/call/3bet，异常局面安全停下等待人工。
+- 验收：可配置翻前策略，Hero 翻前自动 fold/open/call/3bet，异常局面安全停下等待人工。
 
 ### M9：AI 对手策略与 HUD
 
