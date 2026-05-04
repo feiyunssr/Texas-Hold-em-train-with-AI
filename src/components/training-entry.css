@@ -832,6 +832,42 @@ button:disabled {
   gap: var(--space-3);
 }
 
+.decisionComparison {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-subtle);
+  padding: var(--space-3);
+}
+
+.decisionComparison div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.decisionComparison span,
+.decisionComparison p {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.decisionComparison strong {
+  overflow: hidden;
+  font-size: 14px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.decisionComparison p {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
 .adviceView > div {
   display: grid;
   gap: var(--space-1);
@@ -1021,6 +1057,73 @@ button:disabled {
   gap: var(--space-2);
 }
 
+.trainingGoals,
+.scenarioRecommendations {
+  display: grid;
+  gap: var(--space-2);
+  border-top: 1px solid var(--color-border-default);
+  padding-top: var(--space-3);
+}
+
+.trainingGoals > strong,
+.scenarioRecommendations > strong {
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.trainingGoals > span,
+.scenarioRecommendations > span {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.goalRow,
+.scenarioRow {
+  display: grid;
+  gap: var(--space-2);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-panel);
+  padding: var(--space-2);
+}
+
+.goalRow span,
+.goalRow small,
+.scenarioRow span,
+.scenarioRow p {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.goalRow strong,
+.scenarioRow strong {
+  display: block;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.goalProgress {
+  overflow: hidden;
+  height: 8px;
+  border-radius: var(--radius-control);
+  background: var(--color-border-default);
+}
+
+.goalProgress span {
+  display: block;
+  width: var(--goal-progress);
+  height: 100%;
+  background: var(--color-success);
+}
+
+.scenarioRow {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
 .bucketList {
   display: grid;
   gap: 4px;
@@ -1102,9 +1205,11 @@ button:disabled {
 }
 
 .replayMeta,
-.stepSnapshot {
+.stepSnapshot,
+.handMomentActions {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: var(--space-2);
 }
 
@@ -1351,6 +1456,11 @@ button:disabled {
   .seatHudStats,
   .seatProfileControls {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .decisionComparison,
+  .scenarioRow {
+    grid-template-columns: 1fr;
   }
 }
 

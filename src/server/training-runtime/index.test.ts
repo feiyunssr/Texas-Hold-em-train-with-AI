@@ -63,6 +63,7 @@ describe("training table runtime", () => {
     expect(view.tableId).toBe(snapshot.tableId);
     expect(view.handId).toBe(snapshot.hand.handId);
     expect(view.decisionPointId).toContain(":seat-0:");
+    expect(snapshot.currentDecisionPointId).toBe(view.decisionPointId);
     expect(view.heroHoleCards).toHaveLength(2);
     expect(view.board).toEqual(snapshot.hand.board);
     expect(view.legalActions).toEqual(snapshot.hand.legalActions);

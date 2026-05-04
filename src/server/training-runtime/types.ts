@@ -217,6 +217,7 @@ export type TrainingTableSnapshot = {
   tableId: string;
   status: TrainingTableStatus;
   endReason: TrainingTableEndReason | null;
+  currentDecisionPointId: string | null;
   config: TrainingTableConfig;
   heroPreflopStrategy: PublicHeroPreflopStrategyState;
   hand: PublicHandState;

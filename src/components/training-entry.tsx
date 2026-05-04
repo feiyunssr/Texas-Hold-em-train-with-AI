@@ -64,6 +64,7 @@ type CoachPanelState =
   | {
       status: "pending_persistence";
       requestId: string;
+      decisionPointId: string;
       message: string;
       advice: HeroCoachAdvice | null;
     }
@@ -212,6 +213,8 @@ type HistoryAnalyticsView = {
   startingHandResults: HistoryResultBucket[];
   opponentStyleResults: HistoryResultBucket[];
   problemTags: HistoryResultBucket[];
+  trainingGoals: TrainingGoalView[];
+  scenarioRecommendations: TrainingScenarioView[];
 };
 
 type HistoryResultBucket = {
@@ -220,6 +223,39 @@ type HistoryResultBucket = {
   netChips: number;
   netBB: number;
   winRate: number;
+};
+
+type TrainingGoalView = {
+  key: string;
+  title: string;
+  focus: string;
+  hands: number;
+  baselineNetBB: number;
+  recentNetBB: number;
+  trend: "improving" | "declining" | "flat" | "insufficient_data";
+  progressPct: number;
+};
+
+type TrainingScenarioView = {
+  id: string;
+  title: string;
+  source: "history_weakness" | "preset";
+  focus: string;
+  rationale: string;
+  playerCount: 4 | 6 | 9 | 12;
+  smallBlind: number;
+  bigBlind: number;
+  startingStack: number;
+  tableMode: TrainingTableMode;
+  aiStylePreset: TableFormState["aiStylePreset"];
+  preflopStrategyPreset: TableFormState["preflopStrategyPreset"];
+  preflopStrategyMode: HeroPreflopStrategyMode;
+  filters: {
+    position?: string;
+    problemType?: string;
+    opponentStyle?: string;
+    result?: string;
+  };
 };
 
 type HandReplayView = {
@@ -271,6 +307,18 @@ type HandReplayView = {
     responsePayload: unknown;
   }>;
 };
+
+type DecisionComparison = {
+  ai: string;
+  strategy: string;
+  user: string;
+  verdict: string;
+};
+
+type ScenarioSeatConfig = Pick<
+  TrainingTableCreateInput,
+  "heroSeatIndex" | "buttonSeat"
+>;
 
 const DEFAULT_FORM: TableFormState = {
   playerCount: 6,
@@ -391,6 +439,7 @@ export function TrainingEntry({ coachConfig }: TrainingEntryProps) {
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [isLoadingReplay, setIsLoadingReplay] = useState(false);
   const [lastDecisionKey, setLastDecisionKey] = useState<string | null>(null);
+  const isCreatingRef = useRef(false);
   const isSubmittingActionRef = useRef(false);
   const autoContinueHandRef = useRef<string | null>(null);
 
@@ -496,7 +545,15 @@ export function TrainingEntry({ coachConfig }: TrainingEntryProps) {
     void loadHistory();
   }, []);
 
-  async function createTable() {
+  async function createTable(
+    nextForm = form,
+    seatConfig: ScenarioSeatConfig = {}
+  ): Promise<boolean> {
+    if (isCreatingRef.current) {
+      return false;
+    }
+
+    isCreatingRef.current = true;
     setIsCreating(true);
     setNotice(null);
     setCoachState({
@@ -506,24 +563,30 @@ export function TrainingEntry({ coachConfig }: TrainingEntryProps) {
 
     try {
       const body: TrainingTableCreateInput = {
-        playerCount: form.playerCount,
-        smallBlind: form.smallBlind,
-        bigBlind: form.bigBlind,
-        startingStack: form.startingStack,
-        ante: form.ante,
-        heroSeatIndex: 0,
-        buttonSeat: 0,
-        tableMode: form.tableMode,
-        aiStyles: buildAiStyles(form.aiStylePreset, form.playerCount - 1),
+        playerCount: nextForm.playerCount,
+        smallBlind: nextForm.smallBlind,
+        bigBlind: nextForm.bigBlind,
+        startingStack: nextForm.startingStack,
+        ante: nextForm.ante,
+        heroSeatIndex: seatConfig.heroSeatIndex ?? 0,
+        buttonSeat: seatConfig.buttonSeat ?? 0,
+        tableMode: nextForm.tableMode,
+        aiStyles: buildAiStyles(
+          nextForm.aiStylePreset,
+          nextForm.playerCount - 1
+        ),
         heroPreflopStrategy: buildPreflopStrategyConfig(
-          form.preflopStrategyPreset,
-          form.preflopStrategyMode
+          nextForm.preflopStrategyPreset,
+          nextForm.preflopStrategyMode
         )
       };
 
-      if (form.straddleEnabled) {
-        body.straddleSeat = Math.min(form.straddleSeat, form.playerCount - 1);
-        body.straddleAmount = form.straddleAmount;
+      if (nextForm.straddleEnabled) {
+        body.straddleSeat = Math.min(
+          nextForm.straddleSeat,
+          nextForm.playerCount - 1
+        );
+        body.straddleAmount = nextForm.straddleAmount;
       }
 
       const response = await fetch("/api/training/tables", {
@@ -540,6 +603,7 @@ export function TrainingEntry({ coachConfig }: TrainingEntryProps) {
       }
 
       setSnapshot(payload as TrainingTableSnapshot);
+      setForm(nextForm);
       setEvents([]);
       setContinueEnabled(true);
       autoContinueHandRef.current = null;
@@ -549,8 +613,39 @@ export function TrainingEntry({ coachConfig }: TrainingEntryProps) {
       });
     } catch (error) {
       setNotice(errorMessage(error, "训练桌创建失败。"));
+      return false;
     } finally {
+      isCreatingRef.current = false;
       setIsCreating(false);
+    }
+
+    return true;
+  }
+
+  async function startTrainingScenario(scenario: TrainingScenarioView) {
+    if (isCreatingRef.current) {
+      return;
+    }
+
+    const scenarioForm: TableFormState = {
+      ...form,
+      playerCount: scenario.playerCount,
+      smallBlind: scenario.smallBlind,
+      bigBlind: scenario.bigBlind,
+      startingStack: scenario.startingStack,
+      tableMode: scenario.tableMode,
+      aiStylePreset: scenario.aiStylePreset,
+      preflopStrategyPreset: scenario.preflopStrategyPreset,
+      preflopStrategyMode: scenario.preflopStrategyMode,
+      straddleEnabled: false
+    };
+
+    const created = await createTable(
+      scenarioForm,
+      buildScenarioSeatConfig(scenario)
+    );
+    if (created) {
+      setNotice(`已按「${scenario.title}」创建主题训练桌。`);
     }
   }
 
@@ -970,7 +1065,7 @@ export function TrainingEntry({ coachConfig }: TrainingEntryProps) {
     <section className="trainingEntry" aria-labelledby="training-entry-title">
       <div className="workspaceHeader">
         <div>
-          <p className="eyebrow">M11 Rush 高频训练</p>
+          <p className="eyebrow">M12 高级训练闭环</p>
           <h1 id="training-entry-title">AI 德州扑克训练桌</h1>
         </div>
         <div className="syncStatus" aria-live="polite">
@@ -1019,6 +1114,7 @@ export function TrainingEntry({ coachConfig }: TrainingEntryProps) {
           <CoachPanel
             coachConfig={coachConfig}
             coachState={coachState}
+            snapshot={snapshot}
             isHeroTurn={isHeroTurn}
             isSubmittingAction={isSubmittingAction}
             onRequestCoach={requestCoach}
@@ -1045,6 +1141,8 @@ export function TrainingEntry({ coachConfig }: TrainingEntryProps) {
             onFiltersChange={applyHistoryFilters}
             onRefresh={() => loadHistory()}
             onSelectReplay={loadReplay}
+            onStartScenario={startTrainingScenario}
+            isCreatingScenario={isCreating}
           />
         </aside>
       </div>
@@ -1854,18 +1952,25 @@ function SeatHudPanel({
 function CoachPanel({
   coachConfig,
   coachState,
+  snapshot,
   isHeroTurn,
   isSubmittingAction,
   onRequestCoach
 }: {
   coachConfig: AiCoachConfig;
   coachState: CoachPanelState;
+  snapshot: TrainingTableSnapshot | null;
   isHeroTurn: boolean;
   isSubmittingAction: boolean;
   onRequestCoach: () => void;
 }) {
   const advice =
     "advice" in coachState && coachState.advice ? coachState.advice : null;
+  const decisionPointId =
+    "decisionPointId" in coachState ? coachState.decisionPointId : null;
+  const comparison = advice
+    ? buildDecisionComparison(advice, decisionPointId, snapshot)
+    : null;
 
   return (
     <section
@@ -1881,6 +1986,7 @@ function CoachPanel({
       </div>
       <p className="coachMessage">{coachState.message}</p>
       {advice ? <AdviceView advice={advice} /> : null}
+      {comparison ? <DecisionComparisonView comparison={comparison} /> : null}
       {coachState.status === "partial_not_final" ? (
         <pre className="partialPreview">
           {JSON.stringify(coachState.partialResponse, null, 2)}
@@ -1919,6 +2025,30 @@ function CoachPanel({
         </div>
       </dl>
     </section>
+  );
+}
+
+function DecisionComparisonView({
+  comparison
+}: {
+  comparison: DecisionComparison;
+}) {
+  return (
+    <div className="decisionComparison" aria-label="教练、策略和用户行动对比">
+      <div>
+        <span>AI 建议</span>
+        <strong>{comparison.ai}</strong>
+      </div>
+      <div>
+        <span>自动策略</span>
+        <strong>{comparison.strategy}</strong>
+      </div>
+      <div>
+        <span>用户行动</span>
+        <strong>{comparison.user}</strong>
+      </div>
+      <p>{comparison.verdict}</p>
+    </div>
   );
 }
 
@@ -2132,7 +2262,9 @@ function HistoryPanel({
   isLoadingReplay,
   onFiltersChange,
   onRefresh,
-  onSelectReplay
+  onSelectReplay,
+  onStartScenario,
+  isCreatingScenario
 }: {
   rows: HandHistoryRowView[];
   analytics: HistoryAnalyticsView | null;
@@ -2143,6 +2275,8 @@ function HistoryPanel({
   onFiltersChange: (filters: HandHistoryFilters) => void;
   onRefresh: () => void;
   onSelectReplay: (handId: string) => void;
+  onStartScenario: (scenario: TrainingScenarioView) => void;
+  isCreatingScenario: boolean;
 }) {
   return (
     <section className="historyPanel" aria-label="历史手牌和单手回放">
@@ -2161,7 +2295,11 @@ function HistoryPanel({
         </button>
       </div>
       <HistoryFilters filters={filters} onChange={onFiltersChange} />
-      <HistoryAnalytics analytics={analytics} />
+      <HistoryAnalytics
+        analytics={analytics}
+        onStartScenario={onStartScenario}
+        isCreatingScenario={isCreatingScenario}
+      />
       {rows.length === 0 ? (
         <div className="emptyHistory">
           <p>暂无可回放手牌。</p>
@@ -2205,9 +2343,13 @@ function HistoryPanel({
 }
 
 function HistoryAnalytics({
-  analytics
+  analytics,
+  onStartScenario,
+  isCreatingScenario
 }: {
   analytics: HistoryAnalyticsView | null;
+  onStartScenario: (scenario: TrainingScenarioView) => void;
+  isCreatingScenario: boolean;
 }) {
   if (!analytics) {
     return null;
@@ -2270,6 +2412,87 @@ function HistoryAnalytics({
           labelFor={(value) => value}
         />
       </div>
+      <TrainingGoals goals={analytics.trainingGoals ?? []} />
+      <ScenarioRecommendations
+        scenarios={analytics.scenarioRecommendations ?? []}
+        onStartScenario={onStartScenario}
+        isCreatingScenario={isCreatingScenario}
+      />
+    </div>
+  );
+}
+
+function TrainingGoals({ goals }: { goals: TrainingGoalView[] }) {
+  return (
+    <div className="trainingGoals" aria-label="训练目标进度">
+      <strong>训练目标</strong>
+      {goals.length === 0 ? (
+        <span>完成带标签复盘后生成改善趋势。</span>
+      ) : (
+        goals.map((goal) => (
+          <div key={goal.key} className="goalRow">
+            <div>
+              <span>
+                {goal.focus} · {goal.hands} 手 · {goalTrendCopy(goal.trend)}
+              </span>
+              <strong>{goal.title}</strong>
+            </div>
+            <div className="goalProgress" aria-label={`${goal.title} 进度`}>
+              <span
+                style={
+                  {
+                    "--goal-progress": `${goal.progressPct}%`
+                  } as CSSProperties
+                }
+              />
+            </div>
+            <small>
+              基线 {bbCopy(goal.baselineNetBB)} / 最近{" "}
+              {bbCopy(goal.recentNetBB)}
+            </small>
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
+function ScenarioRecommendations({
+  scenarios,
+  onStartScenario,
+  isCreatingScenario
+}: {
+  scenarios: TrainingScenarioView[];
+  onStartScenario: (scenario: TrainingScenarioView) => void;
+  isCreatingScenario: boolean;
+}) {
+  return (
+    <div className="scenarioRecommendations" aria-label="场景训练生成">
+      <strong>场景训练</strong>
+      {scenarios.length === 0 ? (
+        <span>暂无足够历史，先用 Rush 翻前范围冲刺。</span>
+      ) : (
+        scenarios.map((scenario) => (
+          <div key={scenario.id} className="scenarioRow">
+            <div>
+              <span>
+                {scenario.source === "history_weakness" ? "历史弱点" : "预设"} ·{" "}
+                {tableModeCopy(scenario.tableMode)}
+              </span>
+              <strong>{scenario.title}</strong>
+              <p>{scenario.rationale}</p>
+            </div>
+            <button
+              type="button"
+              className="secondaryButton compactButton"
+              disabled={isCreatingScenario}
+              onClick={() => onStartScenario(scenario)}
+            >
+              {isCreatingScenario ? "创建中" : "创建"}
+            </button>
+          </div>
+        ))
+      )}
     </div>
   );
 }
@@ -2405,9 +2628,13 @@ function ReplayView({
   isLoading: boolean;
 }) {
   const [activeStepIndex, setActiveStepIndex] = useState(0);
+  const [handMomentMessage, setHandMomentMessage] = useState<string | null>(
+    null
+  );
 
   useEffect(() => {
     setActiveStepIndex(0);
+    setHandMomentMessage(null);
   }, [replay?.handId]);
 
   if (isLoading) {
@@ -2434,6 +2661,18 @@ function ReplayView({
         <span>{replay.history.blindLevel}</span>
         <span>{positionLabel(replay.history.heroPosition)}</span>
         <span>{profitCopy(replay.history)}</span>
+      </div>
+      <div className="handMomentActions">
+        <button
+          type="button"
+          className="secondaryButton compactButton"
+          onClick={() => {
+            void copyHandMoment(replay).then(setHandMomentMessage);
+          }}
+        >
+          复制 Hand Moment JSON
+        </button>
+        {handMomentMessage ? <small>{handMomentMessage}</small> : null}
       </div>
       {handReview ? (
         <div className="reviewResult">
@@ -2551,6 +2790,204 @@ function ReplayView({
   );
 }
 
+function buildDecisionComparison(
+  advice: HeroCoachAdvice,
+  decisionPointId: string | null,
+  snapshot: TrainingTableSnapshot | null
+): DecisionComparison {
+  const aiAction = advice.primaryAction;
+  const isCurrentDecision =
+    decisionPointId !== null &&
+    snapshot?.currentDecisionPointId === decisionPointId;
+  const strategyEvaluation = isCurrentDecision
+    ? snapshot?.heroPreflopStrategy.current
+    : null;
+  const strategyAction =
+    strategyEvaluation?.decisionPointId === decisionPointId
+      ? strategyEvaluation.action?.type
+      : undefined;
+
+  if (!isCurrentDecision) {
+    return {
+      ai: actionTypeCopy(aiAction, advice.suggestedBetAmount),
+      strategy: "仅对当前决策点显示",
+      user: "等待当前决策点",
+      verdict: "该建议不属于当前行动点，已隐藏旧策略和旧行动对比。"
+    };
+  }
+
+  const userAction = currentDecisionHeroAction(snapshot, decisionPointId);
+  const alignedSignals = [
+    strategyAction === aiAction,
+    userAction === aiAction,
+    strategyAction !== undefined &&
+      userAction !== null &&
+      strategyAction === userAction
+  ].filter(Boolean).length;
+
+  return {
+    ai: actionTypeCopy(aiAction, advice.suggestedBetAmount),
+    strategy: strategyAction
+      ? actionTypeCopy(strategyAction, strategyEvaluation?.action?.amount)
+      : "无命中或未到翻前策略点",
+    user: userAction ? ACTION_LABELS[userAction] : "等待用户行动",
+    verdict:
+      userAction === null
+        ? strategyAction === aiAction
+          ? "AI 与自动策略一致，可作为当前行动基线。"
+          : "AI 与自动策略存在差异，行动前优先检查范围和下注压力。"
+        : alignedSignals >= 2
+          ? "三方大体一致，本决策会进入复盘时间线。"
+          : "本次行动与至少一个参考源不一致，建议在手牌结束后复盘。"
+  };
+}
+
+function currentDecisionHeroAction(
+  snapshot: TrainingTableSnapshot | null,
+  decisionPointId: string
+): ActionType | null {
+  if (!snapshot) {
+    return null;
+  }
+
+  const decision = parseDecisionPointId(decisionPointId);
+  if (!decision || decision.handId !== snapshot.hand.handId) {
+    return null;
+  }
+
+  const heroSeatIndex = snapshot.config.heroSeatIndex;
+  const streetActions =
+    snapshot.hand.streetActionSummary.find(
+      (summary) => summary.street === decision.street
+    )?.actions ?? [];
+  const latest = [...streetActions]
+    .reverse()
+    .find(
+      (action) =>
+        action.seatIndex === heroSeatIndex &&
+        action.sequence > decision.eventSequence
+    );
+  const action = latest?.action ?? null;
+
+  return isActionType(action) ? action : null;
+}
+
+function parseDecisionPointId(decisionPointId: string): {
+  handId: string;
+  street: TrainingTableSnapshot["hand"]["street"];
+  eventSequence: number;
+} | null {
+  const match = decisionPointId.match(
+    /^(.+):(preflop|flop|turn|river|complete):seat-\d+:event-(\d+)$/
+  );
+  if (!match) {
+    return null;
+  }
+
+  return {
+    handId: match[1],
+    street: match[2] as TrainingTableSnapshot["hand"]["street"],
+    eventSequence: Number(match[3])
+  };
+}
+
+function buildScenarioSeatConfig(
+  scenario: TrainingScenarioView
+): ScenarioSeatConfig {
+  const position = scenario.filters.position ?? scenario.focus;
+  const heroSeatIndex = 0;
+
+  if (!isScenarioPosition(position)) {
+    return {
+      heroSeatIndex,
+      buttonSeat: 0
+    };
+  }
+
+  return {
+    heroSeatIndex,
+    buttonSeat: buttonSeatForHeroPosition(position, scenario.playerCount)
+  };
+}
+
+function isScenarioPosition(
+  value: string | undefined
+): value is "button" | "small_blind" | "big_blind" | "other" {
+  return (
+    value === "button" ||
+    value === "small_blind" ||
+    value === "big_blind" ||
+    value === "other"
+  );
+}
+
+function buttonSeatForHeroPosition(
+  position: "button" | "small_blind" | "big_blind" | "other",
+  playerCount: TrainingScenarioView["playerCount"]
+): number {
+  const offsets: Record<typeof position, number> = {
+    button: 0,
+    small_blind: 1,
+    big_blind: 2,
+    other: 3
+  };
+
+  return (playerCount - offsets[position]) % playerCount;
+}
+
+function actionTypeCopy(action: ActionType, amount?: number | null): string {
+  return `${ACTION_LABELS[action]}${amount ? ` ${formatChips(amount)}` : ""}`;
+}
+
+async function copyHandMoment(replay: HandReplayView): Promise<string> {
+  const moment = buildHandMoment(replay);
+  const text = JSON.stringify(moment, null, 2);
+
+  try {
+    await navigator.clipboard.writeText(text);
+    return "Hand Moment JSON 已复制。";
+  } catch {
+    return text;
+  }
+}
+
+function buildHandMoment(replay: HandReplayView) {
+  const lastStep = replay.steps.at(-1);
+  const maxPot = replay.steps.reduce(
+    (maximum, step) => Math.max(maximum, step.potTotal),
+    0
+  );
+  const keyEvents = replay.timeline
+    .filter(
+      (event) =>
+        event.eventType === "player_action" ||
+        event.labels.length > 0 ||
+        event.handReviewInsights.length > 0
+    )
+    .slice(0, 12)
+    .map((event) => ({
+      sequence: event.sequence,
+      street: event.street,
+      eventType: event.eventType,
+      labels: event.labels.map((label) => label.key),
+      insights: event.handReviewInsights.map((insight) => insight.summary)
+    }));
+
+  return {
+    handId: replay.handId,
+    blindLevel: replay.history.blindLevel,
+    playerCount: replay.history.playerCount,
+    heroPosition: replay.history.heroPosition,
+    heroStartingHand: replay.history.startingHand,
+    result: replay.history.result,
+    heroProfitBB: replay.history.heroProfitBB,
+    board: lastStep?.board ?? [],
+    maxPot,
+    problemTags: replay.history.labelKeys,
+    keyEvents
+  };
+}
+
 function coachResultToPanelState(result: CoachApiResult): CoachPanelState {
   if (result.status === "saved_charged") {
     return {
@@ -2586,6 +3023,7 @@ function coachResultToPanelState(result: CoachApiResult): CoachPanelState {
     return {
       status: "pending_persistence",
       requestId: result.requestId,
+      decisionPointId: result.decisionPointId ?? "",
       advice: parseAdvice(result.advice),
       message: "建议正在保存，暂不显示已扣点。"
     };
@@ -2617,6 +3055,10 @@ function parseAdvice(value: unknown): HeroCoachAdvice | null {
   }
 
   return candidate;
+}
+
+function isActionType(value: string | null): value is ActionType {
+  return value !== null && value in ACTION_LABELS;
 }
 
 function parseHandReview(value: unknown): HandReview {
@@ -2966,6 +3408,17 @@ function resultLabel(result: string | null): string {
   };
 
   return result ? (labels[result] ?? result) : "未知结果";
+}
+
+function goalTrendCopy(trend: TrainingGoalView["trend"]): string {
+  const labels: Record<TrainingGoalView["trend"], string> = {
+    improving: "改善中",
+    declining: "走弱",
+    flat: "持平",
+    insufficient_data: "样本不足"
+  };
+
+  return labels[trend];
 }
 
 function profitCopy(

@@ -1183,12 +1183,24 @@ export function buildTableSnapshot(
     tableId: session.tableId,
     status: session.status,
     endReason: session.endReason,
+    currentDecisionPointId: getCurrentHeroDecisionPointId(session),
     config: session.config,
     heroPreflopStrategy: buildPublicHeroPreflopStrategyState(session),
     hand: buildPublicHandState(session),
     createdAt: session.createdAt.toISOString(),
     updatedAt: session.updatedAt.toISOString()
   };
+}
+
+function getCurrentHeroDecisionPointId(session: RuntimeSession): string | null {
+  if (
+    session.status !== "waiting_for_user" ||
+    session.hand.currentActorSeat !== session.config.heroSeatIndex
+  ) {
+    return null;
+  }
+
+  return buildDecisionPointId(session);
 }
 
 function buildDecisionPointId(session: RuntimeSession): string {

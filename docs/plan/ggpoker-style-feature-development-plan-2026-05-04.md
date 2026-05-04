@@ -176,12 +176,22 @@
 - `hand_started` 事件补充 `startingStacks`、`tableMode`、`startReason` 和当手 AI 风格，便于历史/回放 read model 定位 fast-fold 训练资产；当前训练里程碑标记已推进到 M11。
 - 验证：`npm test -- src/server/training-runtime/index.test.ts`、`npm test -- src/server/training-runtime/index.test.ts src/server/training-runtime/persistence.test.ts src/server/persistence/prisma-training-assets.test.ts`、`npm test`、`npm run typecheck`、`npm run lint`、`npm run format`。
 
-### M12：高级训练闭环
+### M12：高级训练闭环（已完成 2026-05-04）
 
 - 场景训练生成：从历史弱点和预设主题创建指定局面。
 - 教练对比策略：AI 建议、用户行动和自动策略三方比较。
 - 训练目标和进度：按问题标签统计改善趋势。
 - 可选导出 Hand Moment。
+
+执行结果：
+
+- `GET /api/training/history` 的 analytics 已新增 `trainingGoals` 和 `scenarioRecommendations`，会从问题标签、弱位置、亏损对手风格和默认 Rush 翻前范围预设生成训练目标与主题场景。
+- 训练目标按问题标签优先聚合，并用历史前半段/后半段 BB 结果计算基线、最近表现、趋势和进度；没有标签时回退到亏损位置目标。
+- 历史侧栏已新增“训练目标”和“场景训练”区块；场景卡片可一键创建对应主题训练桌，自动带入人数、盲注、Rush/标准模式、AI 风格预设和翻前策略建议模式。
+- AI 教练面板已新增三方对比，展示 AI 建议、当前自动策略命中动作和用户最近行动，并给出一致/分歧提示。
+- 单手回放已新增 Hand Moment JSON 复制入口，导出 handId、盲注、Hero 位置/起手牌、结果、公共牌、最大底池、问题标签和关键事件摘要。
+- Review 修复：场景训练创建会把推荐位置转换为 Hero 座位/庄位，创建请求期间会锁定场景按钮，AI 教练三方对比只读取当前决策点的自动策略和用户行动，避免跨街或跨决策复用旧信号。
+- 验证：`npm run typecheck`、`npm run lint`、`npm run format`、`npm test`。
 
 ## 接口与数据变更
 
