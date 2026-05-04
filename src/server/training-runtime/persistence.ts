@@ -11,6 +11,14 @@ type TransactionClient = Parameters<
 
 type PrismaExecutor = PrismaClient | TransactionClient;
 
+const REVIEW_EVENT_SEQUENCE_STEP = 1000;
+
+type ReviewEventLogEntry = {
+  sequence: number;
+  eventType: string;
+  payload: Record<string, unknown>;
+};
+
 export async function persistRuntimeHandForCoach(
   prisma: PrismaClient,
   view: HeroCoachView,
@@ -66,6 +74,7 @@ export async function persistRuntimeHandForReview(
   userId: string
 ): Promise<void> {
   const persistedUserId = await findPersistedUserId(prisma, userId);
+  const eventLogEntries = buildReviewEventLogEntries(view);
 
   await prisma.$transaction(async (tx) => {
     await upsertTableConfig(
@@ -107,34 +116,102 @@ export async function persistRuntimeHandForReview(
       }
     });
 
-    for (const event of view.timeline) {
-      await tx.handEventLog.upsert({
-        where: {
-          handId_sequence: {
-            handId: view.handId,
-            sequence: event.sequence
-          }
-        },
-        create: {
+    await tx.handEventLog.deleteMany({
+      where: { handId: view.handId }
+    });
+
+    for (const event of eventLogEntries) {
+      await tx.handEventLog.create({
+        data: {
           handId: view.handId,
           sequence: event.sequence,
-          eventType: event.type,
-          payload: toInputJson({
-            ...event.payload,
-            reviewStreet: event.street
-          }),
+          eventType: event.eventType,
+          payload: toInputJson(event.payload),
           schemaVersion: 1
-        },
-        update: {
-          eventType: event.type,
-          payload: toInputJson({
-            ...event.payload,
-            reviewStreet: event.street
-          })
         }
       });
     }
   });
+}
+
+export function buildReviewEventLogEntries(
+  view: HandReviewView
+): ReviewEventLogEntry[] {
+  const entries: ReviewEventLogEntry[] = view.timeline.map((event) => ({
+    sequence: toReviewEventSequence(event.sequence),
+    eventType: event.type,
+    payload: {
+      ...event.payload,
+      reviewSequence: event.sequence,
+      reviewStreet: event.street
+    }
+  }));
+  const strategyOffsetsByDecisionSequence = new Map<number, number>();
+  const lastReviewSequence = view.timeline.at(-1)?.sequence ?? 0;
+
+  for (const event of [...view.strategyExecutionEvents].sort(
+    (left, right) => left.sequence - right.sequence
+  )) {
+    const decisionSequence =
+      getStrategyDecisionSequence(event.payload) ?? lastReviewSequence;
+    const offset =
+      (strategyOffsetsByDecisionSequence.get(decisionSequence) ?? 0) + 1;
+
+    if (offset >= REVIEW_EVENT_SEQUENCE_STEP) {
+      throw new Error(
+        `Too many strategy audit events for decision sequence ${decisionSequence}.`
+      );
+    }
+
+    strategyOffsetsByDecisionSequence.set(decisionSequence, offset);
+    entries.push({
+      sequence: toReviewEventSequence(decisionSequence) + offset,
+      eventType: event.type,
+      payload: {
+        ...event.payload,
+        decisionSequence,
+        runtimeSequence: event.sequence,
+        reviewStreet: "preflop"
+      }
+    });
+  }
+
+  return entries.sort((left, right) => left.sequence - right.sequence);
+}
+
+function toReviewEventSequence(sequence: number): number {
+  return sequence * REVIEW_EVENT_SEQUENCE_STEP;
+}
+
+function getStrategyDecisionSequence(
+  payload: Record<string, unknown>
+): number | null {
+  const decisionPointId = getStrategyDecisionPointId(payload);
+  const match = decisionPointId?.match(/:event-(\d+)$/);
+
+  if (!match) {
+    return null;
+  }
+
+  return Number.parseInt(match[1], 10);
+}
+
+function getStrategyDecisionPointId(
+  payload: Record<string, unknown>
+): string | null {
+  const evaluation = payload.evaluation;
+
+  if (
+    evaluation === null ||
+    typeof evaluation !== "object" ||
+    !("decisionPointId" in evaluation)
+  ) {
+    return null;
+  }
+
+  const decisionPointId = evaluation.decisionPointId;
+
+  return typeof decisionPointId === "string" ? decisionPointId : null;
 }
 
 async function findPersistedUserId(

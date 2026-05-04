@@ -9,6 +9,10 @@ import type {
   SeatStatus,
   Street
 } from "@/domain/poker";
+import type {
+  PreflopStrategyConfig,
+  PreflopStrategyEvaluation
+} from "@/domain/preflop-strategy";
 
 export type BotStyle = "tight" | "balanced" | "loose" | "aggressive";
 
@@ -32,6 +36,7 @@ export type TrainingTableCreateInput = {
   buttonSeat?: number;
   seed?: string;
   aiStyles?: BotStyle[];
+  heroPreflopStrategy?: PreflopStrategyConfig;
 };
 
 export type TrainingTableConfig = Required<
@@ -129,7 +134,43 @@ export type RuntimePublicEvent = {
     | "training_ended"
     | "runtime_snapshot"
     | "user_action_rejected"
+    | "strategy_auto_action_evaluated"
+    | "strategy_auto_action_submitted"
+    | "strategy_auto_action_skipped"
     | HandEvent["type"];
+  payload: Record<string, unknown>;
+  createdAt: string;
+};
+
+export type PublicHeroPreflopStrategyState = {
+  mode: PreflopStrategyConfig["mode"];
+  configId: string | null;
+  name: string | null;
+  version: string | null;
+  paused: boolean;
+  current: PublicStrategyEvaluationSummary | null;
+  recentEvents: PublicStrategyExecutionEvent[];
+};
+
+export type PublicStrategyEvaluationSummary = {
+  status: PreflopStrategyEvaluation["status"];
+  strategyId: string;
+  strategyVersion: string;
+  startingHand: string;
+  decisionPointId: string;
+  summary: string;
+  ruleId?: string;
+  ruleLabel?: string;
+  action?: PlayerAction;
+  reason?: string;
+};
+
+export type PublicStrategyExecutionEvent = {
+  sequence: number;
+  type:
+    | "strategy_auto_action_evaluated"
+    | "strategy_auto_action_submitted"
+    | "strategy_auto_action_skipped";
   payload: Record<string, unknown>;
   createdAt: string;
 };
@@ -139,6 +180,7 @@ export type TrainingTableSnapshot = {
   status: TrainingTableStatus;
   endReason: TrainingTableEndReason | null;
   config: TrainingTableConfig;
+  heroPreflopStrategy: PublicHeroPreflopStrategyState;
   hand: PublicHandState;
   createdAt: string;
   updatedAt: string;
@@ -247,6 +289,7 @@ export type HandReviewView = {
     position: "button" | "small_blind" | "big_blind" | "other";
   }>;
   timeline: HandReviewTimelineEvent[];
+  strategyExecutionEvents: PublicStrategyExecutionEvent[];
 };
 
 export type BeginHeroCoachRequestResult =
@@ -279,4 +322,9 @@ export type TrainingRuntimeEvent =
 
 export type SubmitUserActionInput = Omit<PlayerAction, "seatIndex"> & {
   amount?: number;
+};
+
+export type UpdateHeroPreflopStrategyInput = {
+  config?: PreflopStrategyConfig;
+  paused?: boolean;
 };

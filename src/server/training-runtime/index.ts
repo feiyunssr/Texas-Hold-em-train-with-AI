@@ -9,6 +9,13 @@ import {
   type HandState,
   type PlayerAction
 } from "@/domain/poker";
+import {
+  evaluatePreflopStrategy,
+  type PreflopFacing,
+  type PreflopStrategyConfig,
+  type PreflopStrategyContext,
+  type PreflopStrategyEvaluation
+} from "@/domain/preflop-strategy";
 
 import type {
   BeginHeroCoachRequestResult,
@@ -20,6 +27,8 @@ import type {
   PublicActionSummary,
   PublicDisplayPot,
   PublicHandState,
+  PublicHeroPreflopStrategyState,
+  PublicStrategyExecutionEvent,
   PublicStreetActionSummary,
   RuntimePublicEvent,
   RuntimeSeatProfile,
@@ -29,7 +38,8 @@ import type {
   TrainingTableConfig,
   TrainingTableCreateInput,
   TrainingTableSnapshot,
-  TrainingTableStatus
+  TrainingTableStatus,
+  UpdateHeroPreflopStrategyInput
 } from "./types";
 
 export class TrainingRuntimeError extends Error {
@@ -61,9 +71,16 @@ type RuntimeSession = {
   seedBase: string;
   publicEvents: RuntimePublicEvent[];
   heroCoachRequests: Map<string, "requesting" | "completed">;
+  heroPreflopStrategy: RuntimeHeroPreflopStrategyState;
   nextRuntimeSequence: number;
   createdAt: Date;
   updatedAt: Date;
+};
+
+type RuntimeHeroPreflopStrategyState = {
+  config: PreflopStrategyConfig;
+  paused: boolean;
+  current: PreflopStrategyEvaluation | null;
 };
 
 type Subscriber = (
@@ -77,6 +94,15 @@ const DEFAULT_BOT_STYLES: BotStyle[] = [
   "loose",
   "aggressive"
 ];
+
+const DEFAULT_PREFLOP_STRATEGY: PreflopStrategyConfig = {
+  id: "strategy-off",
+  name: "关闭",
+  version: "2026-05-04",
+  mode: "off",
+  rules: [],
+  defaultAction: null
+};
 
 export class TrainingTableRuntime {
   private readonly sessions = new Map<string, RuntimeSession>();
@@ -101,6 +127,11 @@ export class TrainingTableRuntime {
       seedBase,
       publicEvents: [],
       heroCoachRequests: new Map(),
+      heroPreflopStrategy: {
+        config: input.heroPreflopStrategy ?? DEFAULT_PREFLOP_STRATEGY,
+        paused: false,
+        current: null
+      },
       nextRuntimeSequence: 1,
       createdAt: now,
       updatedAt: now
@@ -119,7 +150,7 @@ export class TrainingTableRuntime {
       bigBlindSeat: hand.bigBlindSeat
     });
     session = appendNewHandEvents(session, []);
-    session = this.advanceBots(session);
+    session = this.advanceAutomation(session);
     this.sessions.set(tableId, session);
 
     const snapshot = buildTableSnapshot(session);
@@ -310,7 +341,7 @@ export class TrainingTableRuntime {
         type: input.type,
         amount: input.amount
       });
-      session = this.advanceBots(session);
+      session = this.advanceAutomation(session);
       this.sessions.set(tableId, session);
 
       const snapshot = buildTableSnapshot(session);
@@ -343,6 +374,58 @@ export class TrainingTableRuntime {
           error instanceof Error ? error.message : "User action was rejected."
       };
     }
+  }
+
+  updateHeroPreflopStrategy(
+    tableId: string,
+    input: UpdateHeroPreflopStrategyInput
+  ): TrainingRuntimeEvent {
+    let session = this.requireSession(tableId);
+    if (session.status === "training_ended") {
+      throw new TrainingRuntimeError(
+        "training_ended",
+        "The training table has ended and cannot update strategy settings."
+      );
+    }
+
+    const previousPublicEventCount = session.publicEvents.length;
+    const hasPausedUpdate = input.paused !== undefined;
+    const nextStrategy = {
+      config: input.config ?? session.heroPreflopStrategy.config,
+      paused: input.paused ?? session.heroPreflopStrategy.paused,
+      current:
+        input.config || hasPausedUpdate
+          ? null
+          : session.heroPreflopStrategy.current
+    };
+
+    session = appendRuntimeEvent(
+      {
+        ...session,
+        heroPreflopStrategy: nextStrategy,
+        updatedAt: new Date()
+      },
+      "runtime_snapshot",
+      {
+        status: session.status,
+        currentActorSeat: session.hand.currentActorSeat,
+        street: session.hand.street,
+        strategyMode: nextStrategy.config.mode,
+        strategyPaused: nextStrategy.paused
+      }
+    );
+    session = this.advanceAutomation(session);
+    this.sessions.set(tableId, session);
+
+    const snapshot = buildTableSnapshot(session);
+    const events = session.publicEvents.slice(previousPublicEventCount);
+    this.publishAll(session, events, snapshot);
+
+    return {
+      type: "advanced",
+      snapshot,
+      events
+    };
   }
 
   startNextHand(tableId: string): TrainingRuntimeEvent {
@@ -399,6 +482,10 @@ export class TrainingTableRuntime {
       status: "bot_acting",
       endReason: null,
       heroCoachRequests: new Map(),
+      heroPreflopStrategy: {
+        ...session.heroPreflopStrategy,
+        current: null
+      },
       updatedAt: new Date()
     };
     session = appendRuntimeEvent(session, "hand_started", {
@@ -409,7 +496,7 @@ export class TrainingTableRuntime {
       bigBlindSeat: hand.bigBlindSeat
     });
     session = appendNewHandEvents(session, []);
-    session = this.advanceBots(session);
+    session = this.advanceAutomation(session);
     this.sessions.set(tableId, session);
 
     const snapshot = buildTableSnapshot(session);
@@ -461,6 +548,73 @@ export class TrainingTableRuntime {
         this.subscribers.delete(tableId);
       }
     };
+  }
+
+  private advanceAutomation(session: RuntimeSession): RuntimeSession {
+    let nextSession = this.advanceBots(session);
+    let guard = 0;
+
+    while (shouldEvaluateHeroPreflopStrategy(nextSession)) {
+      if (guard++ > 20) {
+        throw new Error("Hero preflop strategy guard exceeded.");
+      }
+
+      const evaluation = evaluatePreflopStrategy(
+        nextSession.heroPreflopStrategy.config,
+        buildPreflopStrategyContext(nextSession)
+      );
+      nextSession = {
+        ...nextSession,
+        heroPreflopStrategy: {
+          ...nextSession.heroPreflopStrategy,
+          current: evaluation
+        }
+      };
+      nextSession = appendStrategyEvaluationEvent(nextSession, evaluation);
+
+      if (
+        evaluation.status !== "matched" ||
+        nextSession.heroPreflopStrategy.config.mode !== "auto"
+      ) {
+        break;
+      }
+
+      const beforeApply = nextSession.publicEvents.length;
+      try {
+        nextSession = this.applyRuntimeAction(nextSession, evaluation.action);
+      } catch (error) {
+        nextSession = appendRuntimeEvent(
+          nextSession,
+          "strategy_auto_action_skipped",
+          {
+            reason: "action_submit_failed",
+            message:
+              error instanceof Error
+                ? error.message
+                : "Strategy auto action failed.",
+            evaluation: summarizeStrategyEvaluation(evaluation)
+          }
+        );
+        break;
+      }
+
+      nextSession = appendRuntimeEvent(
+        nextSession,
+        "strategy_auto_action_submitted",
+        {
+          evaluation: summarizeStrategyEvaluation(evaluation),
+          action: evaluation.action
+        }
+      );
+
+      if (nextSession.publicEvents.length === beforeApply) {
+        break;
+      }
+
+      nextSession = this.advanceBots(nextSession);
+    }
+
+    return nextSession;
   }
 
   private advanceBots(session: RuntimeSession): RuntimeSession {
@@ -747,7 +901,8 @@ export function buildHandReviewView(session: RuntimeSession): HandReviewView {
         position: getSeatPosition(session.hand, seat.seatIndex)
       };
     }),
-    timeline
+    timeline,
+    strategyExecutionEvents: getStrategyExecutionEvents(session, session.handId)
   };
 }
 
@@ -759,6 +914,7 @@ export function buildTableSnapshot(
     status: session.status,
     endReason: session.endReason,
     config: session.config,
+    heroPreflopStrategy: buildPublicHeroPreflopStrategyState(session),
     hand: buildPublicHandState(session),
     createdAt: session.createdAt.toISOString(),
     updatedAt: session.updatedAt.toISOString()
@@ -776,6 +932,261 @@ function buildDecisionPointId(session: RuntimeSession): string {
 
 function getLastHandEventSequence(session: RuntimeSession): number {
   return session.hand.events[session.hand.events.length - 1]?.sequence ?? 0;
+}
+
+function shouldEvaluateHeroPreflopStrategy(session: RuntimeSession): boolean {
+  if (
+    session.status !== "waiting_for_user" ||
+    session.hand.street !== "preflop" ||
+    session.hand.currentActorSeat !== session.config.heroSeatIndex ||
+    session.heroPreflopStrategy.paused ||
+    session.heroPreflopStrategy.config.mode === "off"
+  ) {
+    return false;
+  }
+
+  const decisionPointId = buildDecisionPointId(session);
+  if (session.heroCoachRequests.get(decisionPointId) === "requesting") {
+    return false;
+  }
+
+  const current = session.heroPreflopStrategy.current;
+  return current?.context.decisionPointId !== decisionPointId;
+}
+
+function buildPreflopStrategyContext(
+  session: RuntimeSession
+): PreflopStrategyContext {
+  const heroSeatIndex = session.config.heroSeatIndex;
+  const heroSeat = session.hand.seats[heroSeatIndex];
+  const heroHoleCards = heroSeat.holeCards;
+
+  if (heroHoleCards.length !== 2) {
+    throw new Error("Hero preflop strategy requires exactly two hole cards.");
+  }
+
+  return {
+    handId: session.handId,
+    decisionPointId: buildDecisionPointId(session),
+    heroSeatIndex,
+    heroHoleCards: [heroHoleCards[0], heroHoleCards[1]],
+    position: getSeatPosition(session.hand, heroSeatIndex),
+    effectiveStackBb:
+      calculateHeroEffectiveStack(session) / session.config.bigBlind,
+    facing: getPreflopFacing(session),
+    previousRaiseSizeBb: getPreviousPreflopRaiseSizeBb(session),
+    hasStraddle:
+      session.config.straddleSeat !== undefined &&
+      (session.config.straddleAmount ?? 0) > 0,
+    tableSize: session.config.playerCount,
+    legalActions: getLegalActions(session.hand),
+    bigBlind: session.config.bigBlind,
+    streetCommitment: heroSeat.streetCommitment
+  };
+}
+
+function getPreflopFacing(session: RuntimeSession): PreflopFacing {
+  const preflopActions = getPreflopPlayerActions(session.hand.events);
+  const raiseCount = preflopActions.filter(
+    (event) =>
+      event.payload.action === "raise" || event.payload.action === "all-in"
+  ).length;
+  const callCount = preflopActions.filter(
+    (event) => event.payload.action === "call"
+  ).length;
+
+  if (raiseCount >= 2) {
+    return "three_bet_or_more";
+  }
+
+  if (raiseCount === 1) {
+    return "single_raise";
+  }
+
+  return callCount > 0 ? "limped" : "unopened";
+}
+
+function getPreviousPreflopRaiseSizeBb(session: RuntimeSession): number | null {
+  const latestRaise = getPreflopPlayerActions(session.hand.events)
+    .filter(
+      (event) =>
+        event.payload.action === "raise" || event.payload.action === "all-in"
+    )
+    .at(-1);
+
+  return latestRaise
+    ? latestRaise.payload.totalBetTo / session.config.bigBlind
+    : null;
+}
+
+function getPreflopPlayerActions(
+  events: HandEvent[]
+): Array<Extract<HandEvent, { type: "player_action" }>> {
+  const actions: Array<Extract<HandEvent, { type: "player_action" }>> = [];
+
+  for (const event of events) {
+    if (event.type === "street_advanced") {
+      break;
+    }
+
+    if (event.type === "player_action") {
+      actions.push(event);
+    }
+  }
+
+  return actions;
+}
+
+function appendStrategyEvaluationEvent(
+  session: RuntimeSession,
+  evaluation: PreflopStrategyEvaluation
+): RuntimeSession {
+  if (evaluation.status === "matched") {
+    return appendRuntimeEvent(session, "strategy_auto_action_evaluated", {
+      evaluation: summarizeStrategyEvaluation(evaluation),
+      action: evaluation.action
+    });
+  }
+
+  return appendRuntimeEvent(session, "strategy_auto_action_skipped", {
+    evaluation: summarizeStrategyEvaluation(evaluation),
+    reason: evaluation.reason
+  });
+}
+
+function summarizeStrategyEvaluation(
+  evaluation: PreflopStrategyEvaluation
+): Record<string, unknown> {
+  const shared = {
+    status: evaluation.status,
+    strategyId: evaluation.strategyId,
+    strategyVersion: evaluation.strategyVersion,
+    startingHand: evaluation.startingHand,
+    decisionPointId: evaluation.context.decisionPointId,
+    position: evaluation.context.position,
+    facing: evaluation.context.facing,
+    effectiveStackBb: evaluation.context.effectiveStackBb,
+    previousRaiseSizeBb: evaluation.context.previousRaiseSizeBb,
+    hasStraddle: evaluation.context.hasStraddle,
+    tableSize: evaluation.context.tableSize,
+    summary: evaluation.summary
+  };
+
+  if (evaluation.status === "matched") {
+    return {
+      ...shared,
+      ruleId: evaluation.ruleId,
+      ruleLabel: evaluation.ruleLabel,
+      decision: evaluation.decision,
+      mixRoll: evaluation.mixRoll,
+      action: evaluation.action
+    };
+  }
+
+  return {
+    ...shared,
+    reason: evaluation.reason
+  };
+}
+
+function buildPublicHeroPreflopStrategyState(
+  session: RuntimeSession
+): PublicHeroPreflopStrategyState {
+  const config = session.heroPreflopStrategy.config;
+
+  return {
+    mode: config.mode,
+    configId: config.mode === "off" ? null : config.id,
+    name: config.mode === "off" ? null : config.name,
+    version: config.mode === "off" ? null : config.version,
+    paused: session.heroPreflopStrategy.paused,
+    current: session.heroPreflopStrategy.current
+      ? summarizePublicStrategyEvaluation(session.heroPreflopStrategy.current)
+      : null,
+    recentEvents: getStrategyExecutionEvents(session).slice(-6).reverse()
+  };
+}
+
+function summarizePublicStrategyEvaluation(
+  evaluation: PreflopStrategyEvaluation
+): PublicHeroPreflopStrategyState["current"] {
+  const shared = {
+    status: evaluation.status,
+    strategyId: evaluation.strategyId,
+    strategyVersion: evaluation.strategyVersion,
+    startingHand: evaluation.startingHand,
+    decisionPointId: evaluation.context.decisionPointId,
+    summary: evaluation.summary
+  };
+
+  if (evaluation.status === "matched") {
+    return {
+      ...shared,
+      ruleId: evaluation.ruleId,
+      ruleLabel: evaluation.ruleLabel,
+      action: evaluation.action
+    };
+  }
+
+  return {
+    ...shared,
+    reason: evaluation.reason
+  };
+}
+
+function getStrategyExecutionEvents(
+  session: RuntimeSession,
+  handId?: string
+): PublicStrategyExecutionEvent[] {
+  return session.publicEvents
+    .filter(isPublicStrategyExecutionEvent)
+    .filter(
+      (event) =>
+        handId === undefined || isStrategyExecutionEventForHand(event, handId)
+    )
+    .map((event) => ({
+      sequence: event.sequence,
+      type: event.type,
+      payload: event.payload,
+      createdAt: event.createdAt
+    }));
+}
+
+function isPublicStrategyExecutionEvent(
+  event: RuntimePublicEvent
+): event is PublicStrategyExecutionEvent {
+  return (
+    event.type === "strategy_auto_action_evaluated" ||
+    event.type === "strategy_auto_action_submitted" ||
+    event.type === "strategy_auto_action_skipped"
+  );
+}
+
+function isStrategyExecutionEventForHand(
+  event: PublicStrategyExecutionEvent,
+  handId: string
+): boolean {
+  const decisionPointId = getStrategyDecisionPointId(event.payload);
+
+  return decisionPointId?.startsWith(`${handId}:`) ?? false;
+}
+
+function getStrategyDecisionPointId(
+  payload: Record<string, unknown>
+): string | null {
+  const evaluation = payload.evaluation;
+
+  if (
+    evaluation === null ||
+    typeof evaluation !== "object" ||
+    !("decisionPointId" in evaluation)
+  ) {
+    return null;
+  }
+
+  const decisionPointId = evaluation.decisionPointId;
+
+  return typeof decisionPointId === "string" ? decisionPointId : null;
 }
 
 function getSeatPosition(

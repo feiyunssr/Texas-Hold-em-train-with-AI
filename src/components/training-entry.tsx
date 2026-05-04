@@ -8,6 +8,10 @@ import type { HandReview } from "@/ai/hand-review";
 import type { AiCoachConfig } from "@/ai/config";
 import type { ActionType, CardCode, LegalAction } from "@/domain/poker";
 import type {
+  HeroPreflopStrategyMode,
+  PreflopStrategyConfig
+} from "@/domain/preflop-strategy";
+import type {
   BotStyle,
   PublicActionSummary,
   PublicSeatState,
@@ -30,6 +34,8 @@ type TableFormState = {
   straddleSeat: number;
   straddleAmount: number;
   aiStylePreset: "balanced" | "mixed" | "pressure" | "patient";
+  preflopStrategyMode: HeroPreflopStrategyMode;
+  preflopStrategyPreset: "tight_open" | "button_steal" | "fit_or_fold";
 };
 
 type CoachPanelState =
@@ -209,7 +215,9 @@ const DEFAULT_FORM: TableFormState = {
   straddleEnabled: false,
   straddleSeat: 3,
   straddleAmount: 4,
-  aiStylePreset: "mixed"
+  aiStylePreset: "mixed",
+  preflopStrategyMode: "off",
+  preflopStrategyPreset: "tight_open"
 };
 
 const DEMO_USER_ID = "demo-user";
@@ -233,6 +241,9 @@ const SSE_EVENT_TYPES = [
   "training_ended",
   "runtime_snapshot",
   "user_action_rejected",
+  "strategy_auto_action_evaluated",
+  "strategy_auto_action_submitted",
+  "strategy_auto_action_skipped",
   "forced_bet_posted",
   "hole_cards_dealt",
   "player_action",
@@ -419,7 +430,11 @@ export function TrainingEntry({ coachConfig }: TrainingEntryProps) {
         ante: form.ante,
         heroSeatIndex: 0,
         buttonSeat: 0,
-        aiStyles: buildAiStyles(form.aiStylePreset, form.playerCount - 1)
+        aiStyles: buildAiStyles(form.aiStylePreset, form.playerCount - 1),
+        heroPreflopStrategy: buildPreflopStrategyConfig(
+          form.preflopStrategyPreset,
+          form.preflopStrategyMode
+        )
       };
 
       if (form.straddleEnabled) {
@@ -494,6 +509,75 @@ export function TrainingEntry({ coachConfig }: TrainingEntryProps) {
     } finally {
       isSubmittingActionRef.current = false;
       setIsSubmittingAction(false);
+    }
+  }
+
+  async function updatePreflopStrategy(
+    nextForm: TableFormState,
+    paused = snapshot?.heroPreflopStrategy.paused ?? false
+  ) {
+    setForm(nextForm);
+
+    if (!snapshot || snapshot.status === "training_ended") {
+      return;
+    }
+
+    setNotice(null);
+    try {
+      const response = await fetch(
+        `/api/training/tables/${snapshot.tableId}/strategy`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            config: buildPreflopStrategyConfig(
+              nextForm.preflopStrategyPreset,
+              nextForm.preflopStrategyMode
+            ),
+            paused
+          })
+        }
+      );
+      const payload = (await response.json()) as
+        | TrainingTableSnapshot
+        | { message?: string };
+
+      if (!response.ok) {
+        throw new Error("message" in payload ? payload.message : undefined);
+      }
+
+      setSnapshot(payload as TrainingTableSnapshot);
+    } catch (error) {
+      setNotice(errorMessage(error, "翻前策略更新失败。"));
+    }
+  }
+
+  async function togglePreflopStrategyPaused() {
+    if (!snapshot || snapshot.status === "training_ended") {
+      return;
+    }
+
+    const paused = !snapshot.heroPreflopStrategy.paused;
+    try {
+      const response = await fetch(
+        `/api/training/tables/${snapshot.tableId}/strategy`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ paused })
+        }
+      );
+      const payload = (await response.json()) as
+        | TrainingTableSnapshot
+        | { message?: string };
+
+      if (!response.ok) {
+        throw new Error("message" in payload ? payload.message : undefined);
+      }
+
+      setSnapshot(payload as TrainingTableSnapshot);
+    } catch (error) {
+      setNotice(errorMessage(error, "翻前策略暂停状态更新失败。"));
     }
   }
 
@@ -804,6 +888,12 @@ export function TrainingEntry({ coachConfig }: TrainingEntryProps) {
         </div>
 
         <aside className="sideRail" aria-label="训练辅助面板">
+          <PreflopStrategyPanel
+            form={form}
+            snapshot={snapshot}
+            onChange={updatePreflopStrategy}
+            onTogglePaused={togglePreflopStrategyPaused}
+          />
           <CoachPanel
             coachConfig={coachConfig}
             coachState={coachState}
@@ -1431,6 +1521,110 @@ function BetSizingControls({
   );
 }
 
+function PreflopStrategyPanel({
+  form,
+  snapshot,
+  onChange,
+  onTogglePaused
+}: {
+  form: TableFormState;
+  snapshot: TrainingTableSnapshot | null;
+  onChange: (nextForm: TableFormState) => void;
+  onTogglePaused: () => void;
+}) {
+  const state = snapshot?.heroPreflopStrategy;
+  const current = state?.current ?? null;
+  const recent = state?.recentEvents ?? [];
+
+  return (
+    <section className="preflopStrategyPanel" aria-label="翻前策略自动执行">
+      <div className="panelHeader">
+        <div>
+          <span className="sectionLabel">翻前策略</span>
+          <h2>{state?.name ?? "未绑定牌桌"}</h2>
+        </div>
+        <span className="chargePill">
+          {state ? preflopStrategyModeCopy(state.mode) : "待创建"}
+        </span>
+      </div>
+      <div className="strategyControls">
+        <label>
+          模式
+          <select
+            value={form.preflopStrategyMode}
+            onChange={(event) =>
+              onChange({
+                ...form,
+                preflopStrategyMode: event.target
+                  .value as HeroPreflopStrategyMode
+              })
+            }
+          >
+            <option value="off">关闭</option>
+            <option value="suggest">建议但不执行</option>
+            <option value="auto">自动执行</option>
+          </select>
+        </label>
+        <label>
+          预设
+          <select
+            value={form.preflopStrategyPreset}
+            onChange={(event) =>
+              onChange({
+                ...form,
+                preflopStrategyPreset: event.target
+                  .value as TableFormState["preflopStrategyPreset"]
+              })
+            }
+          >
+            <option value="tight_open">紧凑开池</option>
+            <option value="button_steal">按钮偷盲</option>
+            <option value="fit_or_fold">缺口弃牌</option>
+          </select>
+        </label>
+      </div>
+      <button
+        type="button"
+        className="secondaryButton fullWidthButton"
+        disabled={!snapshot || snapshot.status === "training_ended"}
+        aria-pressed={state?.paused ?? false}
+        onClick={onTogglePaused}
+      >
+        {state?.paused ? "恢复自动策略" : "暂停自动策略"}
+      </button>
+      {current ? (
+        <div className="strategyCurrent">
+          <span>
+            {current.startingHand} · {strategyEvaluationStatusCopy(current)}
+          </span>
+          <strong>{current.summary}</strong>
+        </div>
+      ) : (
+        <p className="coachMessage">
+          翻前轮到 Hero 时显示当前命中范围和自动行动审计。
+        </p>
+      )}
+      <div className="strategyEventList" aria-label="最近自动策略记录">
+        {recent.length > 0 ? (
+          recent.map((event) => (
+            <div key={event.sequence}>
+              <span>
+                #{event.sequence} {strategyEventTypeCopy(event.type)}
+              </span>
+              <strong>{strategyEventSummary(event)}</strong>
+            </div>
+          ))
+        ) : (
+          <div>
+            <span>暂无记录</span>
+            <strong>命中、提交或安全停止后会记录在这里。</strong>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function CoachPanel({
   coachConfig,
   coachState,
@@ -2053,6 +2247,143 @@ function buildAiStyles(
   );
 }
 
+function buildPreflopStrategyConfig(
+  preset: TableFormState["preflopStrategyPreset"],
+  mode: HeroPreflopStrategyMode
+): PreflopStrategyConfig {
+  if (mode === "off") {
+    return {
+      id: "strategy-off",
+      name: "关闭",
+      version: "2026-05-04",
+      mode,
+      rules: [],
+      defaultAction: null
+    };
+  }
+
+  const base = {
+    version: "2026-05-04",
+    mode,
+    defaultAction: { kind: "fold" as const }
+  };
+
+  if (preset === "button_steal") {
+    return {
+      ...base,
+      id: "button-steal",
+      name: "按钮偷盲",
+      rules: [
+        {
+          id: "btn-unopened-broad",
+          label: "按钮位宽开池",
+          positions: ["button"],
+          facing: "unopened",
+          handClasses: ["pair", "broadway", "suited_ace"],
+          matrix: {
+            KQs: true,
+            KJs: true,
+            QJs: true,
+            JTs: true,
+            T9s: true,
+            A9o: true,
+            KTo: true
+          },
+          action: { kind: "open_raise", raiseToBb: 2.5 }
+        },
+        {
+          id: "single-raise-premium-3bet",
+          label: "强牌反加注",
+          facing: "single_raise",
+          matrix: {
+            AA: true,
+            KK: true,
+            QQ: true,
+            AKs: true,
+            AKo: true
+          },
+          action: { kind: "three_bet", raiseToBb: 8 }
+        }
+      ]
+    };
+  }
+
+  if (preset === "fit_or_fold") {
+    return {
+      ...base,
+      id: "fit-or-fold",
+      name: "缺口弃牌",
+      rules: [
+        {
+          id: "premium-continue",
+          label: "强牌继续",
+          facing: "single_raise",
+          matrix: {
+            AA: true,
+            KK: true,
+            QQ: true,
+            JJ: true,
+            AKs: true,
+            AKo: true,
+            AQs: true
+          },
+          action: {
+            kind: "mix",
+            options: [
+              { weight: 70, action: { kind: "three_bet", raiseToBb: 8 } },
+              { weight: 30, action: { kind: "call" } }
+            ]
+          }
+        },
+        {
+          id: "open-tight",
+          label: "无人入池紧凑开池",
+          facing: "unopened",
+          handClasses: ["pair", "broadway", "suited_ace"],
+          action: { kind: "open_raise", raiseToBb: 2.5 }
+        }
+      ]
+    };
+  }
+
+  return {
+    ...base,
+    id: "tight-open",
+    name: "紧凑开池",
+    rules: [
+      {
+        id: "premium-open",
+        label: "强牌开池",
+        facing: "unopened",
+        matrix: {
+          AA: true,
+          KK: true,
+          QQ: true,
+          JJ: true,
+          TT: true,
+          AKs: true,
+          AKo: true,
+          AQs: true
+        },
+        action: { kind: "open_raise", raiseToBb: 2.5 }
+      },
+      {
+        id: "premium-3bet",
+        label: "强牌 3bet",
+        facing: "single_raise",
+        matrix: {
+          AA: true,
+          KK: true,
+          QQ: true,
+          AKs: true,
+          AKo: true
+        },
+        action: { kind: "three_bet", raiseToBb: 8 }
+      }
+    ]
+  };
+}
+
 function appendEvent(
   current: RuntimePublicEvent[],
   event: RuntimePublicEvent
@@ -2356,6 +2687,9 @@ function eventTypeCopy(event: RuntimePublicEvent): string {
     training_ended: "训练结束",
     runtime_snapshot: "状态同步",
     user_action_rejected: "行动被拒绝",
+    strategy_auto_action_evaluated: "策略命中",
+    strategy_auto_action_submitted: "策略自动提交",
+    strategy_auto_action_skipped: "策略安全停止",
     forced_bet_posted: "强制下注",
     hole_cards_dealt: "发底牌",
     player_action: "玩家行动",
@@ -2367,6 +2701,65 @@ function eventTypeCopy(event: RuntimePublicEvent): string {
   };
 
   return eventLabels[event.type];
+}
+
+function preflopStrategyModeCopy(mode: HeroPreflopStrategyMode): string {
+  const labels: Record<HeroPreflopStrategyMode, string> = {
+    off: "关闭",
+    suggest: "建议",
+    auto: "自动"
+  };
+
+  return labels[mode];
+}
+
+function strategyEvaluationStatusCopy(
+  evaluation: NonNullable<
+    TrainingTableSnapshot["heroPreflopStrategy"]["current"]
+  >
+): string {
+  if (evaluation.status === "matched") {
+    return evaluation.action
+      ? `${ACTION_LABELS[evaluation.action.type]}`
+      : "已命中";
+  }
+
+  return `停止：${evaluation.reason ?? "未命中"}`;
+}
+
+function strategyEventTypeCopy(
+  type: TrainingTableSnapshot["heroPreflopStrategy"]["recentEvents"][number]["type"]
+): string {
+  const labels: Record<
+    TrainingTableSnapshot["heroPreflopStrategy"]["recentEvents"][number]["type"],
+    string
+  > = {
+    strategy_auto_action_evaluated: "命中",
+    strategy_auto_action_submitted: "提交",
+    strategy_auto_action_skipped: "停止"
+  };
+
+  return labels[type];
+}
+
+function strategyEventSummary(
+  event: TrainingTableSnapshot["heroPreflopStrategy"]["recentEvents"][number]
+): string {
+  const payload = event.payload as {
+    evaluation?: {
+      summary?: string;
+      startingHand?: string;
+      reason?: string;
+    };
+    reason?: string;
+  };
+
+  return (
+    payload.evaluation?.summary ??
+    payload.reason ??
+    payload.evaluation?.reason ??
+    "策略事件已记录。"
+  );
 }
 
 function statusLabel(status: PublicSeatState["status"]): string {

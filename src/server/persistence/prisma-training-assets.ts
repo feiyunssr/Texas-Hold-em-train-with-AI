@@ -387,19 +387,23 @@ export class PrismaTrainingAssetRepository implements TrainingAssetRepository {
       extractHandReviewInsights(artifact.id, artifact.responsePayload)
     );
     const timeline = hand.eventLogs.map((event) => {
+      const referenceSequence = replayReferenceSequence(event);
       const street = eventStreet(event);
-      const snapshot = snapshotsByEventSequence.get(event.sequence);
+      const snapshot = snapshotsByEventSequence.get(referenceSequence);
       const labels = [
         ...(snapshot?.labelAssignments ?? []),
         ...hand.labelAssignments.filter(
           (assignment) =>
-            assignment.decisionPointId?.includes(`event-${event.sequence}`) ||
+            assignment.decisionPointId?.includes(
+              `event-${referenceSequence}`
+            ) ||
             (street !== null && assignment.street === street)
         )
       ];
 
       return {
         ...toStoredHandEvent(event),
+        sequence: replayDisplaySequence(event),
         street,
         aiArtifacts:
           snapshot?.aiArtifacts.map((artifact) => ({
@@ -415,7 +419,7 @@ export class PrismaTrainingAssetRepository implements TrainingAssetRepository {
         })),
         handReviewInsights: handReviewInsights.filter(
           (insight) =>
-            insight.keySequences.includes(event.sequence) ||
+            insight.keySequences.includes(referenceSequence) ||
             (street !== null && insight.street === street)
         )
       };
@@ -461,6 +465,37 @@ function toStoredHandEvent(record: Prisma.HandEventLogModel): StoredHandEvent {
     schemaVersion: record.schemaVersion,
     createdAt: record.createdAt
   };
+}
+
+function replayReferenceSequence(record: Prisma.HandEventLogModel): number {
+  return (
+    readNumericPayloadField(record.payload, "reviewSequence") ?? record.sequence
+  );
+}
+
+function replayDisplaySequence(record: Prisma.HandEventLogModel): number {
+  return (
+    readNumericPayloadField(record.payload, "reviewSequence") ??
+    readNumericPayloadField(record.payload, "decisionSequence") ??
+    record.sequence
+  );
+}
+
+function readNumericPayloadField(
+  payload: Prisma.JsonValue,
+  field: string
+): number | null {
+  if (
+    payload === null ||
+    typeof payload !== "object" ||
+    Array.isArray(payload)
+  ) {
+    return null;
+  }
+
+  const value = (payload as Record<string, unknown>)[field];
+
+  return typeof value === "number" ? value : null;
 }
 
 function toDecisionSnapshotRecord(

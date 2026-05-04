@@ -105,13 +105,23 @@
 - Review follow-up：live hand 的 `displayPots` 不再从未匹配的当前投入派生边池；fold 结算的总池 award 会展开到每个已结算 display pot，保证赢家和 share 与 pot amount 一致。
 - 验证：`npm run typecheck`、`npm test -- src/server/training-runtime/index.test.ts`、`npm run lint`。
 
-### M8：翻前策略自动执行
+### M8：翻前策略自动执行（已完成 2026-05-04）
 
 - 新增 `src/domain/preflop-strategy`，实现策略配置类型、起手牌归类、上下文匹配、混合频率随机化和合法动作映射。
 - 在 runtime 中增加 Hero 自动策略执行循环，仅在 `waiting_for_user + preflop + 策略开启` 时运行，并复用现有 action submit 校验路径。
 - UI 增加策略开关、预设选择、当前命中说明、最近自动执行记录和暂停按钮。
 - 持久化策略执行事件，进入历史和回放。
 - 验收：可配置翻前策略，Hero 翻前自动 fold/open/call/3bet，异常局面安全停下等待人工。
+
+执行结果：
+
+- 新增 `src/domain/preflop-strategy`，实现策略配置类型、13x13 起手牌归类、范围/位置/前序动作/有效筹码匹配、混合频率确定性随机和合法动作映射。
+- Runtime 已增加 Hero 翻前策略状态、自动执行循环和 `/strategy` 更新接口；只在 `waiting_for_user + preflop + Hero 行动 + 策略未暂停` 时评估，并复用 `applyAction` 合法性路径提交动作。
+- 自动策略已支持关闭、建议但不执行、自动执行三种模式；安全停止覆盖未命中、非法尺度、非翻前、训练结束、暂停和 AI 教练请求锁定。
+- 新增 runtime 事件 `strategy_auto_action_evaluated`、`strategy_auto_action_submitted`、`strategy_auto_action_skipped`，public snapshot 暴露当前命中摘要和最近执行记录；整手复盘持久化时会把策略事件写入回放事件流。
+- Review follow-up：整手复盘现在只携带当前 hand 的策略执行事件；持久化回放使用稀疏 per-hand sequence 将策略审计插入对应决策点附近，并保留原始 hand/runtime sequence 供历史标注和复盘 insight 匹配。
+- `TrainingEntry` 侧栏已新增翻前策略面板，支持模式切换、预设选择、当前命中说明、最近自动执行记录和一键暂停/恢复。
+- 验证：`npm test -- src/domain/preflop-strategy/index.test.ts src/server/training-runtime/index.test.ts`、`npm test -- src/server/training-runtime/index.test.ts src/server/training-runtime/persistence.test.ts`、`npm run typecheck`、`npm run lint`、`npm test`。
 
 ### M9：AI 对手策略与 HUD
 

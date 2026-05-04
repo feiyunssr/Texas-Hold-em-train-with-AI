@@ -343,6 +343,7 @@
 .heroZone,
 .actionTray,
 .actionLine,
+.preflopStrategyPanel,
 .coachPanel,
 .handSummary,
 .historyPanel {
@@ -617,9 +618,64 @@ button:disabled {
   line-height: 28px;
 }
 
+.preflopStrategyPanel,
 .coachPanel {
   display: grid;
   gap: var(--space-3);
+}
+
+.strategyControls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.strategyControls label {
+  display: grid;
+  gap: var(--space-1);
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 16px;
+}
+
+.strategyControls select {
+  width: 100%;
+  min-height: 40px;
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-panel);
+  color: var(--color-text-primary);
+  padding: var(--space-2);
+}
+
+.strategyCurrent,
+.strategyEventList div {
+  display: grid;
+  gap: var(--space-1);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-subtle);
+  padding: var(--space-3);
+}
+
+.strategyEventList {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.strategyCurrent span,
+.strategyEventList span {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 16px;
+}
+
+.strategyCurrent strong,
+.strategyEventList strong {
+  font-size: 14px;
+  line-height: 20px;
 }
 
 .coachState-saved_charged {

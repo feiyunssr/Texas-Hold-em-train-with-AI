@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { TrainingRuntimeError, TrainingTableRuntime } from "./index";
-import type { BotStyle, TrainingTableSnapshot } from "./types";
+import type { BotStyle, HandReviewView, TrainingTableSnapshot } from "./types";
 
 describe("training table runtime", () => {
   it.each([4, 6, 9, 12] as const)(
@@ -190,6 +190,181 @@ describe("training table runtime", () => {
     );
   });
 
+  it("auto-executes a matched hero preflop strategy through the legal action path", () => {
+    const runtime = new TrainingTableRuntime();
+    const created = runtime.createTable({
+      ...baseCreateInput(4),
+      heroPreflopStrategy: {
+        id: "auto-fold-all",
+        name: "Auto fold all",
+        version: "test",
+        mode: "auto",
+        rules: [
+          {
+            id: "all-hands",
+            label: "全部弃牌",
+            facing: "any",
+            handClasses: ["pair", "suited", "offsuit"],
+            action: { kind: "fold" }
+          }
+        ]
+      }
+    });
+    const events = runtime.getPublicEvents(created.snapshot.tableId);
+
+    expect(created.snapshot.status).not.toBe("waiting_for_user");
+    expect(
+      events.some((event) => event.type === "strategy_auto_action_evaluated")
+    ).toBe(true);
+    expect(
+      events.some((event) => event.type === "strategy_auto_action_submitted")
+    ).toBe(true);
+    expect(
+      events.some(
+        (event) =>
+          event.type === "player_action" &&
+          (event.payload as { seatIndex?: number; action?: string })
+            .seatIndex === 0 &&
+          (event.payload as { seatIndex?: number; action?: string }).action ===
+            "fold"
+      )
+    ).toBe(true);
+  });
+
+  it("scopes hand review strategy execution events to the reviewed hand", () => {
+    const runtime = new TrainingTableRuntime();
+    const created = runtime.createTable({
+      ...baseCreateInput(4),
+      heroPreflopStrategy: {
+        id: "auto-fold-all-hands",
+        name: "Auto fold all hands",
+        version: "test",
+        mode: "auto",
+        rules: [
+          {
+            id: "all-hands",
+            label: "全部弃牌",
+            facing: "any",
+            handClasses: ["pair", "suited", "offsuit"],
+            action: { kind: "fold" }
+          }
+        ]
+      }
+    });
+
+    expect(created.snapshot.status).toBe("hand_complete");
+
+    const firstReview = runtime.getHandReviewView(created.snapshot.tableId);
+    const secondHand = runtime.startNextHand(created.snapshot.tableId).snapshot;
+
+    expect(secondHand.status).toBe("hand_complete");
+
+    const secondReview = runtime.getHandReviewView(secondHand.tableId);
+    const firstDecisionPointIds = strategyDecisionPointIds(firstReview);
+    const secondDecisionPointIds = strategyDecisionPointIds(secondReview);
+
+    expect(firstDecisionPointIds.length).toBeGreaterThan(0);
+    expect(secondDecisionPointIds.length).toBeGreaterThan(0);
+    expect(
+      firstDecisionPointIds.every((decisionPointId) =>
+        decisionPointId.startsWith(`${firstReview.handId}:`)
+      )
+    ).toBe(true);
+    expect(
+      secondDecisionPointIds.every((decisionPointId) =>
+        decisionPointId.startsWith(`${secondReview.handId}:`)
+      )
+    ).toBe(true);
+    expect(
+      secondDecisionPointIds.some((decisionPointId) =>
+        decisionPointId.startsWith(`${firstReview.handId}:`)
+      )
+    ).toBe(false);
+  });
+
+  it("records preflop strategy suggestions without submitting when mode is suggest", () => {
+    const runtime = new TrainingTableRuntime();
+    const created = runtime.createTable({
+      ...baseCreateInput(4),
+      heroPreflopStrategy: {
+        id: "suggest-fold-all",
+        name: "Suggest fold all",
+        version: "test",
+        mode: "suggest",
+        rules: [
+          {
+            id: "all-hands",
+            label: "全部弃牌",
+            facing: "any",
+            handClasses: ["pair", "suited", "offsuit"],
+            action: { kind: "fold" }
+          }
+        ]
+      }
+    });
+    const events = runtime.getPublicEvents(created.snapshot.tableId);
+
+    expect(created.snapshot.status).toBe("waiting_for_user");
+    expect(created.snapshot.heroPreflopStrategy.current).toEqual(
+      expect.objectContaining({
+        status: "matched",
+        ruleId: "all-hands"
+      })
+    );
+    expect(
+      events.some((event) => event.type === "strategy_auto_action_evaluated")
+    ).toBe(true);
+    expect(
+      events.some((event) => event.type === "strategy_auto_action_submitted")
+    ).toBe(false);
+  });
+
+  it("skips auto strategy while a hero coach request locks the decision point", () => {
+    const runtime = new TrainingTableRuntime();
+    const created = runtime.createTable({
+      ...baseCreateInput(4),
+      heroPreflopStrategy: {
+        id: "manual-start",
+        name: "Manual start",
+        version: "test",
+        mode: "off",
+        rules: []
+      }
+    });
+    const coach = runtime.beginHeroCoachRequest(created.snapshot.tableId);
+
+    expect(coach.status).toBe("locked");
+
+    const updated = runtime.updateHeroPreflopStrategy(
+      created.snapshot.tableId,
+      {
+        config: {
+          id: "auto-fold-after-lock",
+          name: "Auto fold after lock",
+          version: "test",
+          mode: "auto",
+          rules: [
+            {
+              id: "all-hands",
+              label: "全部弃牌",
+              facing: "any",
+              handClasses: ["pair", "suited", "offsuit"],
+              action: { kind: "fold" }
+            }
+          ]
+        }
+      }
+    );
+
+    expect(updated.snapshot.status).toBe("waiting_for_user");
+    expect(updated.snapshot.heroPreflopStrategy.current).toBeNull();
+    expect(
+      runtime
+        .getPublicEvents(created.snapshot.tableId)
+        .some((event) => event.type === "strategy_auto_action_submitted")
+    ).toBe(false);
+  });
+
   it("rejects illegal user actions without adding a player_action event", () => {
     const runtime = new TrainingTableRuntime();
     const created = runtime.createTable(baseCreateInput(4));
@@ -365,4 +540,16 @@ function preferPassiveAction(snapshot: TrainingTableSnapshot) {
   return {
     type: "fold" as const
   };
+}
+
+function strategyDecisionPointIds(view: HandReviewView): string[] {
+  return view.strategyExecutionEvents.map((event) => {
+    const evaluation = event.payload.evaluation as
+      | { decisionPointId?: unknown }
+      | undefined;
+
+    return typeof evaluation?.decisionPointId === "string"
+      ? evaluation.decisionPointId
+      : "";
+  });
 }
