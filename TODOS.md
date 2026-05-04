@@ -10,6 +10,12 @@
 
 ## Completed
 
+### 2026-05-04: Resolve HUD and seat profile review findings
+
+- **Result:** Session HUD now reports 3Bet and ATS rates against their opportunity counts, and the seat profile API rejects malformed seat route segments such as `1abc`.
+- **Closed by:** Added internal HUD opportunity counters for three-bet and steal spots in [`src/server/training-runtime`](src/server/training-runtime), validated complete integer seat route segments in [`src/app/api/training/tables/[tableId]/seats/[seatIndex]/profile`](src/app/api/training/tables/%5BtableId%5D/seats/%5BseatIndex%5D/profile), and added targeted regression coverage.
+- **Validation:** `npm test -- src/server/training-runtime/index.test.ts src/app/api/training/tables/[tableId]/seats/[seatIndex]/profile/route.test.ts`, `npm run typecheck`, `npm run lint`, and targeted Prettier check.
+
 ### 2026-05-04: Resolve M7 display pot review findings
 
 - **Result:** Live snapshots no longer derive side pots from unequal in-progress commitments, and fold settlements now show the awarded winner and per-pot share on every settled display pot.

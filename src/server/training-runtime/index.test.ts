@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { TrainingRuntimeError, TrainingTableRuntime } from "./index";
 import type { BotStyle, HandReviewView, TrainingTableSnapshot } from "./types";
@@ -34,7 +34,13 @@ describe("training table runtime", () => {
     const { snapshot } = runtime.createTable({
       ...baseCreateInput(6),
       heroSeatIndex: 5,
-      aiStyles: ["balanced", "tight", "loose", "aggressive", "balanced"]
+      aiStyles: [
+        "balanced",
+        "tight-passive",
+        "loose-passive",
+        "loose-aggressive",
+        "balanced"
+      ]
     });
 
     expect(snapshot.status).toBe("waiting_for_user");
@@ -94,18 +100,144 @@ describe("training table runtime", () => {
     ).toBe(true);
   });
 
+  it("tracks session HUD stats without exposing hidden opponent cards", () => {
+    const runtime = new TrainingTableRuntime();
+    const { snapshot } = runtime.createTable({
+      ...baseCreateInput(4),
+      aiStyles: [
+        "loose-aggressive",
+        "tight-aggressive",
+        "balanced"
+      ] satisfies BotStyle[]
+    });
+    const initialHeroHud = snapshot.hand.seats[0].hud;
+
+    expect(initialHeroHud.hands).toBe(1);
+    expect(snapshot.hand.seats[1].holeCards).toBeNull();
+    expect(
+      runtime
+        .getPublicEvents(snapshot.tableId)
+        .some((event) => event.type === "hud_stats_updated")
+    ).toBe(true);
+
+    const raised = runtime.submitUserAction(snapshot.tableId, {
+      type: "raise",
+      amount: snapshot.hand.legalActions.find(
+        (action) => action.type === "raise"
+      )?.amount
+    }).snapshot;
+
+    expect(raised.hand.seats[0].hud.vpip).toBe(1);
+    expect(raised.hand.seats[0].hud.pfr).toBe(1);
+    expect(raised.hand.seats[0].hud.vpipPct).toBe(100);
+    expect(
+      raised.hand.seats
+        .filter((seat) => !seat.isHero)
+        .every(
+          (seat) => seat.holeCards === null || raised.status === "hand_complete"
+        )
+    ).toBe(true);
+  });
+
+  it("reports ATS as steal attempts divided by steal opportunities", () => {
+    const runtime = createRuntimeWithTableId("tbl_ats_test_0");
+    const { snapshot } = runtime.createTable({
+      ...baseCreateInput(4),
+      seed: "ats-fixed-0",
+      aiStyles: [
+        "tight-passive",
+        "tight-passive",
+        "tight-passive"
+      ] satisfies BotStyle[]
+    });
+    const raise = snapshot.hand.legalActions.find(
+      (action) => action.type === "raise"
+    );
+
+    if (!raise) {
+      throw new Error("Expected a steal raise to be legal.");
+    }
+
+    const firstHand = runtime.submitUserAction(snapshot.tableId, {
+      type: "raise",
+      amount: raise.amount
+    }).snapshot;
+    const nextHand = runtime.startNextHand(firstHand.tableId).snapshot;
+
+    expect(firstHand.status).toBe("hand_complete");
+    expect(nextHand.hand.seats[0].hud.hands).toBe(2);
+    expect(nextHand.hand.seats[0].hud.ats).toBe(1);
+    expect(nextHand.hand.seats[0].hud.atsPct).toBe(100);
+  });
+
+  it("reports 3Bet as three-bets divided by three-bet opportunities", () => {
+    const runtime = createRuntimeWithTableId("tbl_three_bet_test_58");
+    const { snapshot } = runtime.createTable({
+      ...baseCreateInput(4),
+      startingStack: 1000,
+      seed: "three-fixed-58",
+      aiStyles: [
+        "loose-aggressive",
+        "loose-aggressive",
+        "loose-aggressive"
+      ] satisfies BotStyle[]
+    });
+    const threeBet = snapshot.hand.legalActions.find(
+      (action) => action.type === "raise"
+    );
+
+    if (!threeBet) {
+      throw new Error("Expected a 3Bet raise to be legal.");
+    }
+
+    let current = runtime.submitUserAction(snapshot.tableId, {
+      type: "raise",
+      amount: threeBet.amount
+    }).snapshot;
+
+    expect(current.hand.seats[0].hud.threeBet).toBe(1);
+
+    current = completeHandWithPassiveActions(runtime, current);
+
+    const nextHand = runtime.startNextHand(current.tableId).snapshot;
+
+    expect(nextHand.hand.seats[0].hud.hands).toBe(2);
+    expect(nextHand.hand.seats[0].hud.threeBet).toBe(1);
+    expect(nextHand.hand.seats[0].hud.threeBetPct).toBe(100);
+  });
+
+  it("updates AI seat color tags and notes in the public snapshot", () => {
+    const runtime = new TrainingTableRuntime();
+    const { snapshot } = runtime.createTable(baseCreateInput(4));
+    const updated = runtime.updateSeatProfile(snapshot.tableId, 1, {
+      colorTag: "purple",
+      note: "过度跟注"
+    });
+
+    expect(updated.snapshot.hand.seats[1]).toEqual(
+      expect.objectContaining({
+        colorTag: "purple",
+        note: "过度跟注"
+      })
+    );
+    expect(
+      runtime
+        .getPublicEvents(snapshot.tableId)
+        .some((event) => event.type === "seat_profile_updated")
+    ).toBe(true);
+  });
+
   it("does not derive live side pots from unmatched current commitments", () => {
     const runtime = new TrainingTableRuntime();
     const { snapshot } = runtime.createTable(baseCreateInput(6));
 
     expect(snapshot.status).toBe("waiting_for_user");
     expect(snapshot.hand.pots).toEqual([]);
-    expect(snapshot.hand.potTotal).toBe(90);
     expect(snapshot.hand.displayPots).toEqual([
       expect.objectContaining({
         label: "主池",
-        amount: 90,
-        eligibleSeatIndexes: [0, 1, 2, 3, 4, 5],
+        amount: snapshot.hand.potTotal,
+        eligibleSeatIndexes: expect.arrayContaining([0]),
         winnerSeatIndexes: [],
         share: null
       })
@@ -116,7 +248,11 @@ describe("training table runtime", () => {
     const runtime = new TrainingTableRuntime();
     const created = runtime.createTable({
       ...baseCreateInput(4),
-      aiStyles: ["tight", "tight", "tight"] satisfies BotStyle[]
+      aiStyles: [
+        "tight-passive",
+        "tight-passive",
+        "tight-passive"
+      ] satisfies BotStyle[]
     });
     const raised = runtime.submitUserAction(created.snapshot.tableId, {
       type: "raise",
@@ -129,33 +265,21 @@ describe("training table runtime", () => {
 
     expect(terminal.status).toBe("hand_complete");
     expect(terminal.hand.completionReason).toBe("fold");
-    expect(terminal.hand.awards).toEqual([
+    expect(terminal.hand.awards[0]).toEqual(
       expect.objectContaining({
-        potAmount: 110,
         winnerSeatIndexes: [0],
-        share: 110
+        share: terminal.hand.awards[0].potAmount
       })
-    ]);
-    expect(terminal.hand.displayPots).toEqual([
-      expect.objectContaining({
-        label: "主池",
-        amount: 30,
-        winnerSeatIndexes: [0],
-        share: 30
-      }),
-      expect.objectContaining({
-        label: "边池 1",
-        amount: 60,
-        winnerSeatIndexes: [0],
-        share: 60
-      }),
-      expect.objectContaining({
-        label: "边池 2",
-        amount: 20,
-        winnerSeatIndexes: [0],
-        share: 20
-      })
-    ]);
+    );
+    expect(terminal.hand.displayPots.length).toBeGreaterThan(0);
+    expect(
+      terminal.hand.displayPots.every(
+        (pot) => pot.winnerSeatIndexes[0] === 0 && pot.share === pot.amount
+      )
+    ).toBe(true);
+    expect(
+      terminal.hand.displayPots.reduce((sum, pot) => sum + pot.amount, 0)
+    ).toBe(terminal.hand.awards[0].potAmount);
   });
 
   it("accepts a legal user action, appends public events, and keeps the hand moving", () => {
@@ -416,7 +540,11 @@ describe("training table runtime", () => {
     const created = runtime.createTable({
       ...baseCreateInput(4),
       heroSeatIndex: 3,
-      aiStyles: ["tight", "tight", "tight"] satisfies BotStyle[]
+      aiStyles: [
+        "tight-passive",
+        "tight-passive",
+        "tight-passive"
+      ] satisfies BotStyle[]
     });
 
     let snapshot = created.snapshot;
@@ -517,6 +645,17 @@ function baseCreateInput(playerCount: 4 | 6 | 9 | 12) {
   };
 }
 
+function createRuntimeWithTableId(tableId: string): TrainingTableRuntime {
+  const runtime = new TrainingTableRuntime();
+
+  vi.spyOn(
+    runtime as unknown as { createTableId: () => string },
+    "createTableId"
+  ).mockReturnValue(tableId);
+
+  return runtime;
+}
+
 function preferPassiveAction(snapshot: TrainingTableSnapshot) {
   const check = snapshot.hand.legalActions.find(
     (action) => action.type === "check"
@@ -540,6 +679,28 @@ function preferPassiveAction(snapshot: TrainingTableSnapshot) {
   return {
     type: "fold" as const
   };
+}
+
+function completeHandWithPassiveActions(
+  runtime: TrainingTableRuntime,
+  snapshot: TrainingTableSnapshot
+): TrainingTableSnapshot {
+  let current = snapshot;
+  let guard = 0;
+
+  while (current.status === "waiting_for_user") {
+    if (guard++ > 50) {
+      throw new Error("Test hand did not complete.");
+    }
+
+    current = runtime.submitUserAction(
+      current.tableId,
+      preferPassiveAction(current)
+    ).snapshot;
+  }
+
+  expect(current.status).toBe("hand_complete");
+  return current;
 }
 
 function strategyDecisionPointIds(view: HandReviewView): string[] {

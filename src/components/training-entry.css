@@ -130,6 +130,7 @@
 
 .seatTopline,
 .seatFacts,
+.seatHudMini,
 .seatMarkers {
   display: flex;
   align-items: center;
@@ -159,11 +160,20 @@
 }
 
 .seatFacts,
+.seatHudMini,
 .seatMarkers {
   flex-wrap: wrap;
   color: var(--color-text-secondary);
   font-size: 12px;
   line-height: 16px;
+}
+
+.seatHudMini {
+  gap: 6px;
+}
+
+.seatHudMini span {
+  font-weight: 800;
 }
 
 .seatAction {
@@ -344,6 +354,7 @@
 .actionTray,
 .actionLine,
 .preflopStrategyPanel,
+.seatHudPanel,
 .coachPanel,
 .handSummary,
 .historyPanel {
@@ -619,9 +630,126 @@ button:disabled {
 }
 
 .preflopStrategyPanel,
+.seatHudPanel,
 .coachPanel {
   display: grid;
   gap: var(--space-3);
+}
+
+.seatHudList {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.seatHudRow {
+  display: grid;
+  gap: var(--space-2);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-subtle);
+  padding: var(--space-3);
+}
+
+.seatHudHeader {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.seatHudHeader strong,
+.seatHudHeader span:last-child {
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.seatHudHeader span:last-child {
+  color: var(--color-text-secondary);
+  font-weight: 800;
+}
+
+.seatColorDot {
+  width: 12px;
+  height: 12px;
+  border: 1px solid var(--color-border-default);
+  border-radius: 50%;
+  background: var(--color-surface-panel);
+}
+
+.seatHudStats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-1);
+}
+
+.seatHudStats span {
+  overflow: hidden;
+  border-radius: var(--radius-control);
+  background: var(--color-surface-panel);
+  padding: 4px 6px;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.seatProfileControls {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: var(--space-2);
+}
+
+.seatProfileControls select,
+.seatProfileControls input {
+  min-width: 0;
+  min-height: 38px;
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-panel);
+  color: var(--color-text-primary);
+  padding: var(--space-2);
+}
+
+.seatNote {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.tag-red {
+  background: #dc2626;
+  color: #fff;
+}
+
+.tag-orange {
+  background: #ea580c;
+  color: #fff;
+}
+
+.tag-yellow {
+  background: #facc15;
+  color: #1f2937;
+}
+
+.tag-green {
+  background: #16a34a;
+  color: #fff;
+}
+
+.tag-blue {
+  background: #2563eb;
+  color: #fff;
+}
+
+.tag-purple {
+  background: #7c3aed;
+  color: #fff;
 }
 
 .strategyControls {
@@ -954,6 +1082,7 @@ button:disabled {
 
   .seatTopline strong,
   .seatFacts span:nth-child(3),
+  .seatHudMini,
   .seatAction,
   .seatMarkers {
     display: none;
@@ -1064,6 +1193,11 @@ button:disabled {
 
   .actionLineHeader {
     display: grid;
+  }
+
+  .seatHudStats,
+  .seatProfileControls {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 

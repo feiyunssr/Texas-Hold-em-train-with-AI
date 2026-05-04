@@ -10,11 +10,26 @@ import type {
   Street
 } from "@/domain/poker";
 import type {
+  BotDecisionTrace,
+  BotStyle,
+  BotSeatStrategyView,
+  LegacyBotStyle
+} from "@/domain/bot-strategy";
+import type {
   PreflopStrategyConfig,
   PreflopStrategyEvaluation
 } from "@/domain/preflop-strategy";
 
-export type BotStyle = "tight" | "balanced" | "loose" | "aggressive";
+export type { BotStyle, LegacyBotStyle };
+
+export type SeatColorTag =
+  | "none"
+  | "red"
+  | "orange"
+  | "yellow"
+  | "green"
+  | "blue"
+  | "purple";
 
 export type TrainingTableStatus =
   | "waiting_for_user"
@@ -35,7 +50,7 @@ export type TrainingTableCreateInput = {
   heroSeatIndex?: number;
   buttonSeat?: number;
   seed?: string;
-  aiStyles?: BotStyle[];
+  aiStyles?: Array<BotStyle | LegacyBotStyle>;
   heroPreflopStrategy?: PreflopStrategyConfig;
 };
 
@@ -60,6 +75,20 @@ export type RuntimeSeatProfile = {
   displayName: string;
   isHero: boolean;
   style: BotStyle | "hero";
+  colorTag: SeatColorTag;
+  note: string;
+};
+
+export type PublicHudStats = {
+  hands: number;
+  vpip: number;
+  pfr: number;
+  threeBet: number;
+  ats: number;
+  vpipPct: number;
+  pfrPct: number;
+  threeBetPct: number;
+  atsPct: number;
 };
 
 export type PublicSeatState = {
@@ -77,6 +106,9 @@ export type PublicSeatState = {
   isSmallBlind: boolean;
   isBigBlind: boolean;
   lastAction: PublicActionSummary | null;
+  hud: PublicHudStats;
+  colorTag: SeatColorTag;
+  note: string;
 };
 
 export type PublicActionSummary = {
@@ -137,6 +169,8 @@ export type RuntimePublicEvent = {
     | "strategy_auto_action_evaluated"
     | "strategy_auto_action_submitted"
     | "strategy_auto_action_skipped"
+    | "hud_stats_updated"
+    | "seat_profile_updated"
     | HandEvent["type"];
   payload: Record<string, unknown>;
   createdAt: string;
@@ -186,36 +220,7 @@ export type TrainingTableSnapshot = {
   updatedAt: string;
 };
 
-export type BotSeatView = {
-  tableId: string;
-  handId: string;
-  seatIndex: number;
-  style: BotStyle;
-  street: Street;
-  board: CardCode[];
-  potTotal: number;
-  currentBet: number;
-  currentActorSeat: number | null;
-  heroSeatIndex: number;
-  seats: Array<{
-    seatIndex: number;
-    stack: number;
-    status: SeatStatus;
-    streetCommitment: number;
-    totalCommitment: number;
-    isHero: boolean;
-    style: BotStyle | "hero";
-    holeCards: CardCode[] | null;
-  }>;
-  legalActions: LegalAction[];
-  visibleActionHistory: Array<{
-    sequence: number;
-    seatIndex: number;
-    action: ActionType;
-    amount: number;
-    totalBetTo: number;
-  }>;
-};
+export type BotSeatView = BotSeatStrategyView;
 
 export type HeroCoachView = {
   tableId: string;
@@ -237,6 +242,8 @@ export type HeroCoachView = {
     displayName: string;
     isHero: boolean;
     style: BotStyle | "hero";
+    colorTag: SeatColorTag;
+    note: string;
     stack: number;
     effectiveStackAgainstHero: number;
     status: SeatStatus;
@@ -282,6 +289,8 @@ export type HandReviewView = {
     displayName: string;
     isHero: boolean;
     style: BotStyle | "hero";
+    colorTag: SeatColorTag;
+    note: string;
     finalStack: number;
     totalCommitment: number;
     status: SeatStatus;
@@ -324,7 +333,14 @@ export type SubmitUserActionInput = Omit<PlayerAction, "seatIndex"> & {
   amount?: number;
 };
 
+export type UpdateSeatProfileInput = {
+  colorTag?: SeatColorTag;
+  note?: string;
+};
+
 export type UpdateHeroPreflopStrategyInput = {
   config?: PreflopStrategyConfig;
   paused?: boolean;
 };
+
+export type BotStrategyTraceView = BotDecisionTrace;

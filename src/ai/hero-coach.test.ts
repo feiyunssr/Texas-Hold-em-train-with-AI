@@ -104,7 +104,12 @@ function coachView(): HeroCoachView {
       heroSeatIndex: 0,
       buttonSeat: 0,
       ante: 0,
-      aiStyles: ["balanced", "tight", "loose", "aggressive"]
+      aiStyles: [
+        "balanced",
+        "tight-passive",
+        "loose-passive",
+        "loose-aggressive"
+      ]
     },
     street: "preflop",
     board: [],
@@ -137,6 +142,8 @@ function coachView(): HeroCoachView {
         displayName: "Hero",
         isHero: true,
         style: "hero",
+        colorTag: "none",
+        note: "",
         stack: 120,
         effectiveStackAgainstHero: 120,
         status: "active",

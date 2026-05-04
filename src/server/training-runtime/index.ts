@@ -10,6 +10,12 @@ import {
   type PlayerAction
 } from "@/domain/poker";
 import {
+  chooseBotStrategyAction,
+  normalizeBotStyle,
+  type BotDecisionTrace,
+  type LegacyBotStyle
+} from "@/domain/bot-strategy";
+import {
   evaluatePreflopStrategy,
   type PreflopFacing,
   type PreflopStrategyConfig,
@@ -27,11 +33,13 @@ import type {
   PublicActionSummary,
   PublicDisplayPot,
   PublicHandState,
+  PublicHudStats,
   PublicHeroPreflopStrategyState,
   PublicStrategyExecutionEvent,
   PublicStreetActionSummary,
   RuntimePublicEvent,
   RuntimeSeatProfile,
+  SeatColorTag,
   SubmitUserActionInput,
   TrainingTableEndReason,
   TrainingRuntimeEvent,
@@ -39,7 +47,8 @@ import type {
   TrainingTableCreateInput,
   TrainingTableSnapshot,
   TrainingTableStatus,
-  UpdateHeroPreflopStrategyInput
+  UpdateHeroPreflopStrategyInput,
+  UpdateSeatProfileInput
 } from "./types";
 
 export class TrainingRuntimeError extends Error {
@@ -72,6 +81,9 @@ type RuntimeSession = {
   publicEvents: RuntimePublicEvent[];
   heroCoachRequests: Map<string, "requesting" | "completed">;
   heroPreflopStrategy: RuntimeHeroPreflopStrategyState;
+  hud: RuntimeHudState;
+  currentHandHud: RuntimeCurrentHandHud;
+  botDecisionTraces: BotDecisionTrace[];
   nextRuntimeSequence: number;
   createdAt: Date;
   updatedAt: Date;
@@ -83,6 +95,29 @@ type RuntimeHeroPreflopStrategyState = {
   current: PreflopStrategyEvaluation | null;
 };
 
+type RuntimeHudCounters = {
+  hands: number;
+  vpip: number;
+  pfr: number;
+  threeBet: number;
+  threeBetOpportunities: number;
+  ats: number;
+  atsOpportunities: number;
+};
+
+type RuntimeHudState = RuntimeHudCounters[];
+
+type RuntimeCurrentHandHud = {
+  handId: string;
+  vpipSeats: Set<number>;
+  pfrSeats: Set<number>;
+  threeBetSeats: Set<number>;
+  threeBetOpportunitySeats: Set<number>;
+  atsSeats: Set<number>;
+  atsOpportunitySeats: Set<number>;
+  preflopRaiseCount: number;
+};
+
 type Subscriber = (
   event: RuntimePublicEvent,
   snapshot: TrainingTableSnapshot
@@ -90,9 +125,27 @@ type Subscriber = (
 
 const DEFAULT_BOT_STYLES: BotStyle[] = [
   "balanced",
-  "tight",
-  "loose",
-  "aggressive"
+  "tight-passive",
+  "loose-passive",
+  "loose-aggressive"
+];
+
+const ALLOWED_BOT_STYLES: BotStyle[] = [
+  "tight-passive",
+  "tight-aggressive",
+  "loose-passive",
+  "loose-aggressive",
+  "balanced"
+];
+
+const ALLOWED_SEAT_COLOR_TAGS: SeatColorTag[] = [
+  "none",
+  "red",
+  "orange",
+  "yellow",
+  "green",
+  "blue",
+  "purple"
 ];
 
 const DEFAULT_PREFLOP_STRATEGY: PreflopStrategyConfig = {
@@ -114,6 +167,7 @@ export class TrainingTableRuntime {
     const seedBase = input.seed ?? tableId;
     const seatProfiles = createSeatProfiles(config);
     const hand = createRuntimeHand(config, seedBase, 1);
+    const hud = createRuntimeHud(config.playerCount);
     const now = new Date();
     let session: RuntimeSession = {
       tableId,
@@ -132,10 +186,16 @@ export class TrainingTableRuntime {
         paused: false,
         current: null
       },
+      hud,
+      currentHandHud: createCurrentHandHud(
+        createRuntimeId(`${tableId}-hand`, 1)
+      ),
+      botDecisionTraces: [],
       nextRuntimeSequence: 1,
       createdAt: now,
       updatedAt: now
     };
+    session = startHudHand(session);
 
     session = appendRuntimeEvent(session, "table_created", {
       tableId,
@@ -150,6 +210,7 @@ export class TrainingTableRuntime {
       bigBlindSeat: hand.bigBlindSeat
     });
     session = appendNewHandEvents(session, []);
+    session = appendHudUpdatedEvent(session, "hand_started");
     session = this.advanceAutomation(session);
     this.sessions.set(tableId, session);
 
@@ -428,6 +489,78 @@ export class TrainingTableRuntime {
     };
   }
 
+  updateSeatProfile(
+    tableId: string,
+    seatIndex: number,
+    input: UpdateSeatProfileInput
+  ): TrainingRuntimeEvent {
+    let session = this.requireSession(tableId);
+    validateSeatIndex(seatIndex, session.config.playerCount, "seatIndex");
+    const profile = session.seatProfiles[seatIndex];
+    if (!profile) {
+      throw new TrainingRuntimeError(
+        "invalid_config",
+        "Seat profile was not found."
+      );
+    }
+
+    const colorTag = input.colorTag ?? profile.colorTag;
+    if (!ALLOWED_SEAT_COLOR_TAGS.includes(colorTag)) {
+      throw new TrainingRuntimeError(
+        "invalid_config",
+        `Unsupported seat color tag ${colorTag}.`
+      );
+    }
+
+    const note = input.note ?? profile.note;
+    if (note.length > 120) {
+      throw new TrainingRuntimeError(
+        "invalid_config",
+        "Seat notes must be 120 characters or fewer."
+      );
+    }
+
+    const previousPublicEventCount = session.publicEvents.length;
+    const seatProfiles = session.seatProfiles.map((candidate) =>
+      candidate.seatIndex === seatIndex
+        ? {
+            ...candidate,
+            colorTag,
+            note
+          }
+        : candidate
+    );
+    session = appendRuntimeEvent(
+      {
+        ...session,
+        seatProfiles,
+        updatedAt: new Date()
+      },
+      "seat_profile_updated",
+      {
+        seatIndex,
+        colorTag,
+        hasNote: note.trim().length > 0
+      }
+    );
+    session = appendRuntimeEvent(session, "runtime_snapshot", {
+      status: session.status,
+      currentActorSeat: session.hand.currentActorSeat,
+      street: session.hand.street
+    });
+    this.sessions.set(tableId, session);
+
+    const snapshot = buildTableSnapshot(session);
+    const events = session.publicEvents.slice(previousPublicEventCount);
+    this.publishAll(session, events, snapshot);
+
+    return {
+      type: "advanced",
+      snapshot,
+      events
+    };
+  }
+
   startNextHand(tableId: string): TrainingRuntimeEvent {
     let session = this.requireSession(tableId);
     if (session.status === "training_ended") {
@@ -486,8 +619,12 @@ export class TrainingTableRuntime {
         ...session.heroPreflopStrategy,
         current: null
       },
+      currentHandHud: createCurrentHandHud(
+        createRuntimeId(`${session.tableId}-hand`, handNumber)
+      ),
       updatedAt: new Date()
     };
+    session = startHudHand(session);
     session = appendRuntimeEvent(session, "hand_started", {
       handId: session.handId,
       handNumber,
@@ -496,6 +633,7 @@ export class TrainingTableRuntime {
       bigBlindSeat: hand.bigBlindSeat
     });
     session = appendNewHandEvents(session, []);
+    session = appendHudUpdatedEvent(session, "hand_started");
     session = this.advanceAutomation(session);
     this.sessions.set(tableId, session);
 
@@ -632,8 +770,15 @@ export class TrainingTableRuntime {
 
       const actorSeat = nextSession.hand.currentActorSeat;
       const view = buildBotSeatView(nextSession, actorSeat);
-      const action = chooseBotAction(view);
-      nextSession = this.applyRuntimeAction(nextSession, action);
+      const decision = chooseBotStrategyAction(view);
+      nextSession = {
+        ...nextSession,
+        botDecisionTraces: [
+          ...nextSession.botDecisionTraces,
+          decision.trace
+        ].slice(-80)
+      };
+      nextSession = this.applyRuntimeAction(nextSession, decision.action);
     }
 
     const isHandComplete = nextSession.hand.street === "complete";
@@ -693,8 +838,9 @@ export class TrainingTableRuntime {
     action: PlayerAction
   ): RuntimeSession {
     const beforeLength = session.hand.events.length;
+    const actionStreet = session.hand.street;
     const nextHand = applyAction(session.hand, action);
-    return appendNewHandEvents(
+    let nextSession = appendNewHandEvents(
       {
         ...session,
         hand: nextHand,
@@ -702,6 +848,14 @@ export class TrainingTableRuntime {
       },
       session.hand.events.slice(0, beforeLength)
     );
+    nextSession = updateHudAfterAction(
+      nextSession,
+      nextHand.events.slice(beforeLength),
+      actionStreet,
+      session.hand
+    );
+
+    return nextSession;
   }
 
   private requireSession(tableId: string): RuntimeSession {
@@ -776,6 +930,10 @@ export function buildBotSeatView(
     currentBet: session.hand.currentBet,
     currentActorSeat: session.hand.currentActorSeat,
     heroSeatIndex: session.config.heroSeatIndex,
+    buttonSeat: session.hand.buttonSeat,
+    smallBlindSeat: session.hand.smallBlindSeat,
+    bigBlindSeat: session.hand.bigBlindSeat,
+    bigBlind: session.config.bigBlind,
     seats: session.hand.seats.map((seat) => {
       const seatProfile = session.seatProfiles[seat.seatIndex];
       return {
@@ -844,6 +1002,8 @@ export function buildHeroCoachView(session: RuntimeSession): HeroCoachView {
         displayName: profile.displayName,
         isHero: profile.isHero,
         style: profile.style,
+        colorTag: profile.colorTag,
+        note: profile.note,
         stack: seat.stack,
         effectiveStackAgainstHero: Math.min(heroSeat.stack, seat.stack),
         status: seat.status,
@@ -894,6 +1054,8 @@ export function buildHandReviewView(session: RuntimeSession): HandReviewView {
         displayName: profile.displayName,
         isHero: profile.isHero,
         style: profile.style,
+        colorTag: profile.colorTag,
+        note: profile.note,
         finalStack: seat.stack,
         totalCommitment: seat.totalCommitment,
         status: seat.status,
@@ -1331,66 +1493,244 @@ function createSeatProfiles(config: TrainingTableConfig): RuntimeSeatProfile[] {
       playerId: isHero ? "hero" : `bot-${seatIndex + 1}`,
       displayName: isHero ? "Hero" : `AI ${seatIndex + 1}`,
       isHero,
-      style
+      style,
+      colorTag: "none",
+      note: ""
     };
   });
 }
 
-function chooseBotAction(view: BotSeatView): PlayerAction {
-  const legalActions = view.legalActions;
-  const check = legalActions.find((action) => action.type === "check");
-  if (check) {
-    return { seatIndex: view.seatIndex, type: "check" };
+function createRuntimeHud(playerCount: number): RuntimeHudState {
+  return Array.from({ length: playerCount }, () => ({
+    hands: 0,
+    vpip: 0,
+    pfr: 0,
+    threeBet: 0,
+    threeBetOpportunities: 0,
+    ats: 0,
+    atsOpportunities: 0
+  }));
+}
+
+function createCurrentHandHud(handId: string): RuntimeCurrentHandHud {
+  return {
+    handId,
+    vpipSeats: new Set<number>(),
+    pfrSeats: new Set<number>(),
+    threeBetSeats: new Set<number>(),
+    threeBetOpportunitySeats: new Set<number>(),
+    atsSeats: new Set<number>(),
+    atsOpportunitySeats: new Set<number>(),
+    preflopRaiseCount: 0
+  };
+}
+
+function startHudHand(session: RuntimeSession): RuntimeSession {
+  return {
+    ...session,
+    hud: session.hud.map((stats) => ({
+      ...stats,
+      hands: stats.hands + 1
+    })),
+    currentHandHud: createCurrentHandHud(session.handId)
+  };
+}
+
+function updateHudAfterAction(
+  session: RuntimeSession,
+  newEvents: HandEvent[],
+  actionStreet: HandState["street"],
+  previousHand: HandState
+): RuntimeSession {
+  if (actionStreet !== "preflop") {
+    return session;
   }
 
-  const call = legalActions.find((action) => action.type === "call");
-  const fold = legalActions.find((action) => action.type === "fold");
-  const raise = legalActions.find((action) => action.type === "raise");
-  const bet = legalActions.find((action) => action.type === "bet");
-  const allIn = legalActions.find((action) => action.type === "all-in");
+  const actionEvent = newEvents.find(
+    (event): event is Extract<HandEvent, { type: "player_action" }> =>
+      event.type === "player_action"
+  );
+  if (!actionEvent) {
+    return session;
+  }
+
+  const seatIndex = actionEvent.payload.seatIndex;
+  const action = actionEvent.payload.action;
+  const legalActionsBeforeAction = getLegalActions(previousHand);
+  const isVoluntary =
+    action === "call" ||
+    action === "bet" ||
+    action === "raise" ||
+    action === "all-in";
+  const isRaisingAction =
+    (action === "raise" || action === "all-in") &&
+    actionEvent.payload.totalBetTo > previousHand.currentBet;
+
+  let changed = false;
+  const hud = session.hud.map((stats) => ({ ...stats }));
+  const currentHandHud = cloneCurrentHandHud(session.currentHandHud);
+  const hasRaisingOption = legalActionsBeforeAction.some((legalAction) =>
+    isHudRaisingAction(legalAction, previousHand.currentBet)
+  );
 
   if (
-    view.style === "tight" &&
-    call &&
-    (call.toCall ?? call.amount ?? 0) > view.currentBet / 2
+    currentHandHud.preflopRaiseCount === 0 &&
+    isStealAttemptSeat(previousHand, seatIndex) &&
+    currentHandHud.vpipSeats.size === 0 &&
+    hasRaisingOption &&
+    !currentHandHud.atsOpportunitySeats.has(seatIndex)
   ) {
+    currentHandHud.atsOpportunitySeats.add(seatIndex);
+    hud[seatIndex] = {
+      ...hud[seatIndex],
+      atsOpportunities: hud[seatIndex].atsOpportunities + 1
+    };
+    changed = true;
+  }
+
+  if (
+    currentHandHud.preflopRaiseCount === 1 &&
+    hasRaisingOption &&
+    !currentHandHud.threeBetOpportunitySeats.has(seatIndex)
+  ) {
+    currentHandHud.threeBetOpportunitySeats.add(seatIndex);
+    hud[seatIndex] = {
+      ...hud[seatIndex],
+      threeBetOpportunities: hud[seatIndex].threeBetOpportunities + 1
+    };
+    changed = true;
+  }
+
+  if (isVoluntary && !currentHandHud.vpipSeats.has(seatIndex)) {
+    currentHandHud.vpipSeats.add(seatIndex);
+    hud[seatIndex] = {
+      ...hud[seatIndex],
+      vpip: hud[seatIndex].vpip + 1
+    };
+    changed = true;
+  }
+
+  if (isRaisingAction) {
+    if (
+      currentHandHud.preflopRaiseCount === 0 &&
+      currentHandHud.atsOpportunitySeats.has(seatIndex) &&
+      currentHandHud.vpipSeats.size <= 1 &&
+      !currentHandHud.atsSeats.has(seatIndex)
+    ) {
+      currentHandHud.atsSeats.add(seatIndex);
+      hud[seatIndex] = {
+        ...hud[seatIndex],
+        ats: hud[seatIndex].ats + 1
+      };
+      changed = true;
+    }
+
+    if (!currentHandHud.pfrSeats.has(seatIndex)) {
+      currentHandHud.pfrSeats.add(seatIndex);
+      hud[seatIndex] = {
+        ...hud[seatIndex],
+        pfr: hud[seatIndex].pfr + 1
+      };
+      changed = true;
+    }
+
+    if (
+      currentHandHud.preflopRaiseCount === 1 &&
+      !currentHandHud.threeBetSeats.has(seatIndex)
+    ) {
+      currentHandHud.threeBetSeats.add(seatIndex);
+      hud[seatIndex] = {
+        ...hud[seatIndex],
+        threeBet: hud[seatIndex].threeBet + 1
+      };
+      changed = true;
+    }
+
+    currentHandHud.preflopRaiseCount += 1;
+  }
+
+  if (!changed) {
     return {
-      seatIndex: view.seatIndex,
-      type: fold ? "fold" : "call",
-      amount: call.amount
+      ...session,
+      currentHandHud
     };
   }
 
-  if (view.style === "aggressive") {
-    const pressureAction = raise ?? bet;
-    if (
-      pressureAction &&
-      pressureAction.amount !== undefined &&
-      pressureAction.amount <= Math.max(view.currentBet * 2, view.potTotal)
-    ) {
-      return {
-        seatIndex: view.seatIndex,
-        type: pressureAction.type,
-        amount: pressureAction.amount
-      };
-    }
+  return appendHudUpdatedEvent(
+    {
+      ...session,
+      hud,
+      currentHandHud
+    },
+    "player_action",
+    seatIndex
+  );
+}
+
+function cloneCurrentHandHud(
+  current: RuntimeCurrentHandHud
+): RuntimeCurrentHandHud {
+  return {
+    handId: current.handId,
+    vpipSeats: new Set(current.vpipSeats),
+    pfrSeats: new Set(current.pfrSeats),
+    threeBetSeats: new Set(current.threeBetSeats),
+    threeBetOpportunitySeats: new Set(current.threeBetOpportunitySeats),
+    atsSeats: new Set(current.atsSeats),
+    atsOpportunitySeats: new Set(current.atsOpportunitySeats),
+    preflopRaiseCount: current.preflopRaiseCount
+  };
+}
+
+function isHudRaisingAction(
+  action: ReturnType<typeof getLegalActions>[number],
+  currentBet: number
+): boolean {
+  return (
+    action.type === "raise" ||
+    (action.type === "all-in" && (action.totalBetTo ?? 0) > currentBet)
+  );
+}
+
+function isStealAttemptSeat(hand: HandState, seatIndex: number): boolean {
+  return seatIndex === hand.buttonSeat || seatIndex === hand.smallBlindSeat;
+}
+
+function appendHudUpdatedEvent(
+  session: RuntimeSession,
+  reason: "hand_started" | "player_action",
+  seatIndex?: number
+): RuntimeSession {
+  return appendRuntimeEvent(session, "hud_stats_updated", {
+    reason,
+    handId: session.handId,
+    ...(seatIndex === undefined ? {} : { seatIndex }),
+    stats: session.hud.map(buildPublicHudStats)
+  });
+}
+
+function buildPublicHudStats(stats: RuntimeHudCounters): PublicHudStats {
+  const hands = Math.max(0, stats.hands);
+
+  return {
+    hands,
+    vpip: stats.vpip,
+    pfr: stats.pfr,
+    threeBet: stats.threeBet,
+    ats: stats.ats,
+    vpipPct: percent(stats.vpip, hands),
+    pfrPct: percent(stats.pfr, hands),
+    threeBetPct: percent(stats.threeBet, stats.threeBetOpportunities),
+    atsPct: percent(stats.ats, stats.atsOpportunities)
+  };
+}
+
+function percent(value: number, total: number): number {
+  if (total <= 0) {
+    return 0;
   }
 
-  if (view.style === "loose" && allIn && !call) {
-    return { seatIndex: view.seatIndex, type: "all-in", amount: allIn.amount };
-  }
-
-  if (call) {
-    return { seatIndex: view.seatIndex, type: "call", amount: call.amount };
-  }
-  if (fold) {
-    return { seatIndex: view.seatIndex, type: "fold" };
-  }
-  if (allIn) {
-    return { seatIndex: view.seatIndex, type: "all-in", amount: allIn.amount };
-  }
-
-  throw new Error("Bot strategy received no legal action.");
+  return Math.round((value / total) * 100);
 }
 
 function buildPublicHandState(session: RuntimeSession): PublicHandState {
@@ -1450,7 +1790,10 @@ function buildPublicHandState(session: RuntimeSession): PublicHandState {
         isButton: seat.seatIndex === session.hand.buttonSeat,
         isSmallBlind: seat.seatIndex === session.hand.smallBlindSeat,
         isBigBlind: seat.seatIndex === session.hand.bigBlindSeat,
-        lastAction: lastSeatAction(streetActionSummary, seat.seatIndex)
+        lastAction: lastSeatAction(streetActionSummary, seat.seatIndex),
+        hud: buildPublicHudStats(session.hud[seat.seatIndex]),
+        colorTag: profile.colorTag,
+        note: profile.note
       };
     }),
     completionReason: session.hand.completionReason,
@@ -1694,16 +2037,17 @@ function calculatePotTotal(hand: HandState): number {
 }
 
 function normalizeStyles(
-  styles: BotStyle[] | undefined,
+  styles: Array<BotStyle | LegacyBotStyle> | undefined,
   count: number
 ): BotStyle[] {
   return Array.from({ length: count }, (_, index) => {
-    const style =
+    const requestedStyle =
       styles?.[index] ?? DEFAULT_BOT_STYLES[index % DEFAULT_BOT_STYLES.length];
-    if (!DEFAULT_BOT_STYLES.includes(style)) {
+    const style = normalizeBotStyle(requestedStyle);
+    if (!ALLOWED_BOT_STYLES.includes(style)) {
       throw new TrainingRuntimeError(
         "invalid_config",
-        `Unsupported bot style ${style}.`
+        `Unsupported bot style ${requestedStyle}.`
       );
     }
 

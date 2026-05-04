@@ -265,6 +265,8 @@ async function upsertSeatProfiles(
     displayName: string;
     isHero: boolean;
     style: string;
+    colorTag?: string;
+    note?: string;
     position: string;
   }>
 ): Promise<void> {
@@ -285,6 +287,8 @@ async function upsertSeatProfiles(
         startingStack,
         styleProfile: toInputJson({
           style: seat.style,
+          colorTag: seat.colorTag ?? "none",
+          note: seat.note ?? "",
           position: seat.position
         })
       },
@@ -294,6 +298,8 @@ async function upsertSeatProfiles(
         isHero: seat.isHero,
         styleProfile: toInputJson({
           style: seat.style,
+          colorTag: seat.colorTag ?? "none",
+          note: seat.note ?? "",
           position: seat.position
         })
       }

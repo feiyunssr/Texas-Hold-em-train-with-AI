@@ -16,8 +16,10 @@ import type {
   PublicActionSummary,
   PublicSeatState,
   RuntimePublicEvent,
+  SeatColorTag,
   TrainingTableCreateInput,
-  TrainingTableSnapshot
+  TrainingTableSnapshot,
+  UpdateSeatProfileInput
 } from "@/server/training-runtime/types";
 
 type TrainingEntryProps = {
@@ -244,6 +246,8 @@ const SSE_EVENT_TYPES = [
   "strategy_auto_action_evaluated",
   "strategy_auto_action_submitted",
   "strategy_auto_action_skipped",
+  "hud_stats_updated",
+  "seat_profile_updated",
   "forced_bet_posted",
   "hole_cards_dealt",
   "player_action",
@@ -273,10 +277,21 @@ const STREET_LABELS: Record<TrainingTableSnapshot["hand"]["street"], string> = {
 
 const STYLE_LABELS: Record<BotStyle | "hero", string> = {
   hero: "Hero",
-  tight: "紧",
+  "tight-passive": "紧弱",
+  "tight-aggressive": "紧凶",
   balanced: "均衡",
-  loose: "松",
-  aggressive: "压迫"
+  "loose-passive": "松弱",
+  "loose-aggressive": "松凶"
+};
+
+const COLOR_TAG_LABELS: Record<SeatColorTag, string> = {
+  none: "无标记",
+  red: "红",
+  orange: "橙",
+  yellow: "黄",
+  green: "绿",
+  blue: "蓝",
+  purple: "紫"
 };
 
 export function TrainingEntry({ coachConfig }: TrainingEntryProps) {
@@ -578,6 +593,38 @@ export function TrainingEntry({ coachConfig }: TrainingEntryProps) {
       setSnapshot(payload as TrainingTableSnapshot);
     } catch (error) {
       setNotice(errorMessage(error, "翻前策略暂停状态更新失败。"));
+    }
+  }
+
+  async function updateSeatProfile(
+    seatIndex: number,
+    input: UpdateSeatProfileInput
+  ) {
+    if (!snapshot || snapshot.status === "training_ended") {
+      return;
+    }
+
+    setNotice(null);
+    try {
+      const response = await fetch(
+        `/api/training/tables/${snapshot.tableId}/seats/${seatIndex}/profile`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(input)
+        }
+      );
+      const payload = (await response.json()) as
+        | TrainingTableSnapshot
+        | { message?: string };
+
+      if (!response.ok) {
+        throw new Error("message" in payload ? payload.message : undefined);
+      }
+
+      setSnapshot(payload as TrainingTableSnapshot);
+    } catch (error) {
+      setNotice(errorMessage(error, "座位标记更新失败。"));
     }
   }
 
@@ -893,6 +940,10 @@ export function TrainingEntry({ coachConfig }: TrainingEntryProps) {
             snapshot={snapshot}
             onChange={updatePreflopStrategy}
             onTogglePaused={togglePreflopStrategyPaused}
+          />
+          <SeatHudPanel
+            snapshot={snapshot}
+            onUpdateSeatProfile={updateSeatProfile}
           />
           <CoachPanel
             coachConfig={coachConfig}
@@ -1229,13 +1280,20 @@ function SeatToken({
       style={style}
     >
       <div className="seatTopline">
-        <span className="avatar">{initials(seat.displayName)}</span>
+        <span className={`avatar tag-${seat.colorTag}`}>
+          {initials(seat.displayName)}
+        </span>
         <strong>{seat.displayName}</strong>
       </div>
       <div className="seatFacts">
         <span>{formatChips(seat.stack)}</span>
         <span>{statusLabel(seat.status)}</span>
         <span>{STYLE_LABELS[seat.style]}</span>
+      </div>
+      <div className="seatHudMini">
+        <span>VPIP {seat.hud.vpipPct}%</span>
+        <span>PFR {seat.hud.pfrPct}%</span>
+        <span>{seat.hud.hands}H</span>
       </div>
       <div className="seatAction">
         {seat.lastAction ? publicActionBrief(seat.lastAction) : "暂无行动"}
@@ -1250,6 +1308,7 @@ function SeatToken({
         {seat.totalCommitment > 0 ? (
           <span>总投 {formatChips(seat.totalCommitment)}</span>
         ) : null}
+        {seat.note ? <span>笔记</span> : null}
       </div>
     </div>
   );
@@ -1621,6 +1680,86 @@ function PreflopStrategyPanel({
           </div>
         )}
       </div>
+    </section>
+  );
+}
+
+function SeatHudPanel({
+  snapshot,
+  onUpdateSeatProfile
+}: {
+  snapshot: TrainingTableSnapshot | null;
+  onUpdateSeatProfile: (
+    seatIndex: number,
+    input: UpdateSeatProfileInput
+  ) => void;
+}) {
+  const seats = snapshot?.hand.seats ?? [];
+
+  return (
+    <section className="seatHudPanel" aria-label="Session HUD 和玩家标记">
+      <div className="panelHeader">
+        <div>
+          <span className="sectionLabel">Session HUD</span>
+          <h2>{snapshot ? `${seats.length} 个座位` : "等待牌桌"}</h2>
+        </div>
+        <span className="chargePill">本桌</span>
+      </div>
+      {seats.length > 0 ? (
+        <div className="seatHudList">
+          {seats.map((seat) => (
+            <div key={seat.seatIndex} className="seatHudRow">
+              <div className="seatHudHeader">
+                <span className={`seatColorDot tag-${seat.colorTag}`} />
+                <strong>
+                  {seat.displayName} · {STYLE_LABELS[seat.style]}
+                </strong>
+                <span>{seat.hud.hands} 手牌</span>
+              </div>
+              <div className="seatHudStats">
+                <span>VPIP {seat.hud.vpipPct}%</span>
+                <span>PFR {seat.hud.pfrPct}%</span>
+                <span>3Bet {seat.hud.threeBetPct}%</span>
+                <span>ATS {seat.hud.atsPct}%</span>
+              </div>
+              {!seat.isHero ? (
+                <div className="seatProfileControls">
+                  <select
+                    aria-label={`${seat.displayName} 颜色标签`}
+                    value={seat.colorTag}
+                    onChange={(event) =>
+                      onUpdateSeatProfile(seat.seatIndex, {
+                        colorTag: event.target.value as SeatColorTag
+                      })
+                    }
+                  >
+                    {Object.entries(COLOR_TAG_LABELS).map(([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    aria-label={`${seat.displayName} 笔记`}
+                    maxLength={120}
+                    placeholder="笔记"
+                    defaultValue={seat.note}
+                    onBlur={(event) =>
+                      onUpdateSeatProfile(seat.seatIndex, {
+                        note: event.target.value
+                      })
+                    }
+                  />
+                </div>
+              ) : seat.note ? (
+                <p className="seatNote">{seat.note}</p>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="coachMessage">创建牌桌后显示 VPIP、PFR、3Bet、ATS。</p>
+      )}
     </section>
   );
 }
@@ -2050,10 +2189,11 @@ function HistoryFilters({
         onChange={(event) => update("opponentStyle", event.target.value)}
       >
         <option value="">对手风格</option>
-        <option value="tight">紧</option>
+        <option value="tight-passive">紧弱</option>
+        <option value="tight-aggressive">紧凶</option>
         <option value="balanced">均衡</option>
-        <option value="loose">松</option>
-        <option value="aggressive">压迫</option>
+        <option value="loose-passive">松弱</option>
+        <option value="loose-aggressive">松凶</option>
       </select>
     </div>
   );
@@ -2235,9 +2375,15 @@ function buildAiStyles(
 ): BotStyle[] {
   const presets: Record<TableFormState["aiStylePreset"], BotStyle[]> = {
     balanced: ["balanced"],
-    mixed: ["balanced", "tight", "loose", "aggressive"],
-    pressure: ["aggressive", "loose", "balanced"],
-    patient: ["tight", "balanced"]
+    mixed: [
+      "balanced",
+      "tight-passive",
+      "loose-passive",
+      "loose-aggressive",
+      "tight-aggressive"
+    ],
+    pressure: ["loose-aggressive", "tight-aggressive", "balanced"],
+    patient: ["tight-passive", "balanced"]
   };
   const styles = presets[preset];
 
@@ -2690,6 +2836,8 @@ function eventTypeCopy(event: RuntimePublicEvent): string {
     strategy_auto_action_evaluated: "策略命中",
     strategy_auto_action_submitted: "策略自动提交",
     strategy_auto_action_skipped: "策略安全停止",
+    hud_stats_updated: "HUD 更新",
+    seat_profile_updated: "座位标记更新",
     forced_bet_posted: "强制下注",
     hole_cards_dealt: "发底牌",
     player_action: "玩家行动",

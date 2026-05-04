@@ -123,13 +123,23 @@
 - `TrainingEntry` 侧栏已新增翻前策略面板，支持模式切换、预设选择、当前命中说明、最近自动执行记录和一键暂停/恢复。
 - 验证：`npm test -- src/domain/preflop-strategy/index.test.ts src/server/training-runtime/index.test.ts`、`npm test -- src/server/training-runtime/index.test.ts src/server/training-runtime/persistence.test.ts`、`npm run typecheck`、`npm run lint`、`npm test`。
 
-### M9：AI 对手策略与 HUD
+### M9：AI 对手策略与 HUD（已完成 2026-05-04）
 
 - 将 `chooseBotAction` 拆成可测试 strategy adapter。
 - 新增风格范围和翻后启发式，覆盖 tight/balanced/loose/aggressive 与扩展风格。
 - 统计 session HUD：VPIP、PFR、3Bet、ATS、Hands，并在座位上轻量展示。
 - 支持用户颜色标签和笔记。
 - 验收：bot 行为不再只是 check/call/fold，HUD 可随手数更新且不泄露隐藏信息。
+
+执行结果：
+
+- 新增 `src/domain/bot-strategy` 可测试 strategy adapter，runtime 通过 `bot-seat-view` 调用，不读取 Hero 或其他对手隐藏底牌。
+- Bot 风格扩展为 `tight-passive`、`tight-aggressive`、`loose-passive`、`loose-aggressive`、`balanced`；旧 `tight`、`loose`、`aggressive` 输入会归一化到扩展风格，现有 UI 预设已映射到新风格组合。
+- 翻前策略已按起手牌强度、加注历史、下注压力和风格参数选择 fold/call/raise/jam；翻后策略已按粗牌力、听牌、底池赔率、下注压力和风格参数选择 check/call/fold/bet/raise/jam，并生成 bot 决策 trace 供测试/开发使用。
+- Runtime 已新增 session HUD read model，按 table/session 统计每个座位的 Hands、VPIP、PFR、3Bet、ATS，并通过 `hud_stats_updated` 事件和 public snapshot 更新；AI 决策仍只消费 bot 可见视图，不读取面向用户的 HUD 汇总。
+- Public seat snapshot 已包含 HUD、颜色标签和笔记；新增 `/api/training/tables/[tableId]/seats/[seatIndex]/profile` 更新接口，侧栏支持给 AI 座位设置颜色标签和 120 字以内笔记，复盘持久化的 seat profile payload 会带上标签和笔记。
+- `TrainingEntry` 已在座位 token 轻量展示 VPIP/PFR/Hands，在侧栏新增 Session HUD 面板展示 VPIP、PFR、3Bet、ATS 和 AI 座位标记编辑。
+- 验证：`npm test -- src/domain/bot-strategy/index.test.ts src/server/training-runtime/index.test.ts`、`npm run typecheck`、`npm run lint`、`npm test`。
 
 ### M10：PokerCraft 类历史分析
 
