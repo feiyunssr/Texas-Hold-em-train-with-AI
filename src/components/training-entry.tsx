@@ -156,25 +156,87 @@ type HandHistoryFilters = {
 
 type HandHistoryRowView = {
   handId: string;
+  sessionId: string;
   status: string;
   startedAt: string;
   completedAt: string | null;
   completionReason: string | null;
   playerCount: number;
+  blindLevel: string;
+  smallBlind: number;
+  bigBlind: number;
+  startingStack: number;
   heroSeatIndex: number | null;
   heroPosition: string | null;
+  heroProfit: number | null;
+  heroProfitBB: number | null;
+  startingHand: string | null;
   result: string | null;
   hasAIArtifacts: boolean;
   hasHeroCoach: boolean;
   hasHandReview: boolean;
+  strategyExecutionCount: number;
   labelKeys: string[];
   streets: string[];
   opponentStyles: string[];
 };
 
+type HistoryAnalyticsView = {
+  totalHands: number;
+  netChips: number;
+  netBB: number;
+  winningHands: number;
+  losingHands: number;
+  strategyExecutions: number;
+  profitCurve: Array<{
+    handId: string;
+    completedAt: string;
+    handProfit: number;
+    cumulativeChips: number;
+    cumulativeBB: number;
+  }>;
+  sessions: Array<{
+    sessionId: string;
+    startedAt: string | null;
+    completedAt: string | null;
+    hands: number;
+    blindLevel: string;
+    playerCount: number;
+    netChips: number;
+    netBB: number;
+    opponentStyles: string[];
+  }>;
+  positionResults: HistoryResultBucket[];
+  startingHandResults: HistoryResultBucket[];
+  opponentStyleResults: HistoryResultBucket[];
+  problemTags: HistoryResultBucket[];
+};
+
+type HistoryResultBucket = {
+  key: string;
+  hands: number;
+  netChips: number;
+  netBB: number;
+  winRate: number;
+};
+
 type HandReplayView = {
   handId: string;
   history: HandHistoryRowView;
+  steps: Array<{
+    sequence: number;
+    eventType: string;
+    street: string | null;
+    summary: string;
+    potTotal: number;
+    currentBet: number;
+    board: string[];
+    heroStack: number | null;
+    heroStreetCommitment: number | null;
+    heroTotalCommitment: number | null;
+    actingSeatIndex: number | null;
+    legalActionTypes: string[];
+  }>;
   timeline: Array<{
     id: string;
     sequence: number;
@@ -314,6 +376,8 @@ export function TrainingEntry({ coachConfig }: TrainingEntryProps) {
     message: "手牌结束后可请求完整复盘。"
   });
   const [historyRows, setHistoryRows] = useState<HandHistoryRowView[]>([]);
+  const [historyAnalytics, setHistoryAnalytics] =
+    useState<HistoryAnalyticsView | null>(null);
   const [historyFilters, setHistoryFilters] = useState<HandHistoryFilters>(
     DEFAULT_HISTORY_FILTERS
   );
@@ -854,6 +918,7 @@ export function TrainingEntry({ coachConfig }: TrainingEntryProps) {
       const response = await fetch(`/api/training/history?${params}`);
       const payload = (await response.json()) as {
         history?: HandHistoryRowView[];
+        analytics?: HistoryAnalyticsView;
         message?: string;
       };
 
@@ -862,6 +927,7 @@ export function TrainingEntry({ coachConfig }: TrainingEntryProps) {
       }
 
       setHistoryRows(payload.history ?? []);
+      setHistoryAnalytics(payload.analytics ?? null);
     } catch (error) {
       setNotice(errorMessage(error, "历史列表加载失败。"));
     } finally {
@@ -966,6 +1032,7 @@ export function TrainingEntry({ coachConfig }: TrainingEntryProps) {
           />
           <HistoryPanel
             rows={historyRows}
+            analytics={historyAnalytics}
             filters={historyFilters}
             replay={selectedReplay}
             isLoadingHistory={isLoadingHistory}
@@ -2038,6 +2105,7 @@ function ReviewResult({ reviewState }: { reviewState: ReviewPanelState }) {
 
 function HistoryPanel({
   rows,
+  analytics,
   filters,
   replay,
   isLoadingHistory,
@@ -2047,6 +2115,7 @@ function HistoryPanel({
   onSelectReplay
 }: {
   rows: HandHistoryRowView[];
+  analytics: HistoryAnalyticsView | null;
   filters: HandHistoryFilters;
   replay: HandReplayView | null;
   isLoadingHistory: boolean;
@@ -2072,6 +2141,7 @@ function HistoryPanel({
         </button>
       </div>
       <HistoryFilters filters={filters} onChange={onFiltersChange} />
+      <HistoryAnalytics analytics={analytics} />
       {rows.length === 0 ? (
         <div className="emptyHistory">
           <p>暂无可回放手牌。</p>
@@ -2097,12 +2167,13 @@ function HistoryPanel({
                 {row.playerCount} 人 · {positionLabel(row.heroPosition)}
               </strong>
               <span>
-                {resultLabel(row.result)} ·{" "}
-                {row.labelKeys.join(", ") || "无标签"}
+                {resultLabel(row.result)} · {profitCopy(row)} ·{" "}
+                {row.startingHand ?? "未知手牌"}
               </span>
               <span>
                 {row.hasHeroCoach ? "即时建议" : "无即时建议"} /{" "}
-                {row.hasHandReview ? "已复盘" : "未复盘"}
+                {row.hasHandReview ? "已复盘" : "未复盘"} / 策略{" "}
+                {row.strategyExecutionCount}
               </span>
             </button>
           ))}
@@ -2110,6 +2181,113 @@ function HistoryPanel({
       )}
       <ReplayView replay={replay} isLoading={isLoadingReplay} />
     </section>
+  );
+}
+
+function HistoryAnalytics({
+  analytics
+}: {
+  analytics: HistoryAnalyticsView | null;
+}) {
+  if (!analytics) {
+    return null;
+  }
+
+  const latestCurve = analytics.profitCurve.at(-1);
+
+  return (
+    <div className="historyAnalytics">
+      <div className="metricGrid">
+        <MetricTile label="手数" value={analytics.totalHands.toString()} />
+        <MetricTile label="净结果" value={bbCopy(analytics.netBB)} />
+        <MetricTile
+          label="胜率"
+          value={`${percentCopy(analytics.winningHands, analytics.totalHands)}`}
+        />
+        <MetricTile
+          label="策略事件"
+          value={analytics.strategyExecutions.toString()}
+        />
+      </div>
+      <div className="profitCurve" aria-label="盈利曲线">
+        {analytics.profitCurve.slice(-12).map((point) => (
+          <span
+            key={point.handId}
+            style={
+              {
+                "--bar-height": `${Math.min(100, Math.abs(point.cumulativeBB) * 8 + 8)}%`
+              } as CSSProperties
+            }
+            className={
+              point.cumulativeBB >= 0 ? "profitBar up" : "profitBar down"
+            }
+            title={`${formatDateTime(point.completedAt)} ${bbCopy(point.cumulativeBB)}`}
+          />
+        ))}
+        {latestCurve ? (
+          <small>当前曲线 {bbCopy(latestCurve.cumulativeBB)}</small>
+        ) : null}
+      </div>
+      <div className="analyticsBuckets">
+        <BucketList
+          title="位置盈亏"
+          rows={analytics.positionResults}
+          labelFor={positionLabel}
+        />
+        <BucketList
+          title="起手牌"
+          rows={analytics.startingHandResults}
+          labelFor={(value) => value}
+        />
+        <BucketList
+          title="对手风格"
+          rows={analytics.opponentStyleResults}
+          labelFor={(value) => STYLE_LABELS[value as BotStyle] ?? value}
+        />
+        <BucketList
+          title="问题标签"
+          rows={analytics.problemTags}
+          labelFor={(value) => value}
+        />
+      </div>
+    </div>
+  );
+}
+
+function MetricTile({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="metricTile">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function BucketList({
+  title,
+  rows,
+  labelFor
+}: {
+  title: string;
+  rows: HistoryResultBucket[];
+  labelFor: (key: string) => string;
+}) {
+  return (
+    <div className="bucketList">
+      <strong>{title}</strong>
+      {rows.length === 0 ? (
+        <span>暂无数据</span>
+      ) : (
+        rows.slice(0, 4).map((row) => (
+          <div key={row.key} className="bucketRow">
+            <span>{labelFor(row.key)}</span>
+            <span>
+              {row.hands}手 · {bbCopy(row.netBB)} · {row.winRate}%
+            </span>
+          </div>
+        ))
+      )}
+    </div>
   );
 }
 
@@ -2206,6 +2384,12 @@ function ReplayView({
   replay: HandReplayView | null;
   isLoading: boolean;
 }) {
+  const [activeStepIndex, setActiveStepIndex] = useState(0);
+
+  useEffect(() => {
+    setActiveStepIndex(0);
+  }, [replay?.handId]);
+
   if (isLoading) {
     return <p className="coachMessage">回放加载中。</p>;
   }
@@ -2217,23 +2401,106 @@ function ReplayView({
   const handReview = replay.handReviewArtifacts
     .map((artifact) => parseHandReviewPayload(artifact.responsePayload))
     .find(Boolean);
+  const steps = replay.steps.length > 0 ? replay.steps : [];
+  const activeStep = steps[Math.min(activeStepIndex, steps.length - 1)];
+  const streets = Array.from(
+    new Set(steps.map((step) => step.street).filter(Boolean))
+  ) as string[];
 
   return (
     <div className="replayView">
       <h3>{replay.handId}</h3>
+      <div className="replayMeta">
+        <span>{replay.history.blindLevel}</span>
+        <span>{positionLabel(replay.history.heroPosition)}</span>
+        <span>{profitCopy(replay.history)}</span>
+      </div>
       {handReview ? (
         <div className="reviewResult">
           <strong>复盘</strong>
           <p>{handReview.summary}</p>
         </div>
       ) : null}
-      <ol>
-        {replay.timeline.map((event) => (
-          <li key={event.id}>
+      {activeStep ? (
+        <div className="replayStepper">
+          <div className="stepperControls">
+            <button
+              type="button"
+              className="iconButton"
+              disabled={activeStepIndex <= 0}
+              onClick={() =>
+                setActiveStepIndex((index) => Math.max(0, index - 1))
+              }
+              aria-label="上一步"
+            >
+              ←
+            </button>
+            <strong>
+              #{activeStep.sequence} {streetLabel(activeStep.street ?? "")}
+            </strong>
+            <button
+              type="button"
+              className="iconButton"
+              disabled={activeStepIndex >= steps.length - 1}
+              onClick={() =>
+                setActiveStepIndex((index) =>
+                  Math.min(steps.length - 1, index + 1)
+                )
+              }
+              aria-label="下一步"
+            >
+              →
+            </button>
+          </div>
+          <div className="streetJump">
+            {streets.map((street) => {
+              const index = steps.findIndex((step) => step.street === street);
+              return (
+                <button
+                  key={street}
+                  type="button"
+                  className="secondaryButton compactButton"
+                  onClick={() => setActiveStepIndex(index)}
+                >
+                  {streetLabel(street)}
+                </button>
+              );
+            })}
+          </div>
+          <p>{activeStep.summary}</p>
+          <div className="stepSnapshot">
+            <span>底池 {formatChips(activeStep.potTotal)}</span>
+            <span>当前注 {formatChips(activeStep.currentBet)}</span>
+            <span>Hero {nullableChips(activeStep.heroStack)}</span>
             <span>
+              本街投入 {nullableChips(activeStep.heroStreetCommitment)}
+            </span>
+            <span>
+              合法动作{" "}
+              {activeStep.legalActionTypes
+                .map((type) => ACTION_LABELS[type as ActionType] ?? type)
+                .join(", ") || "-"}
+            </span>
+          </div>
+          {activeStep.board.length > 0 ? (
+            <CardRow cards={activeStep.board as CardCode[]} emptyCount={5} />
+          ) : null}
+        </div>
+      ) : null}
+      <ol>
+        {replay.timeline.map((event, index) => (
+          <li
+            key={event.id}
+            className={index === activeStepIndex ? "activeReplayEvent" : ""}
+          >
+            <button
+              type="button"
+              className="replayEventButton"
+              onClick={() => setActiveStepIndex(index)}
+            >
               #{event.sequence} {event.street ? streetLabel(event.street) : ""}{" "}
               {event.eventType}
-            </span>
+            </button>
             {event.aiArtifacts.length > 0 ? (
               <small>
                 AI:{" "}
@@ -2679,6 +2946,24 @@ function resultLabel(result: string | null): string {
   };
 
   return result ? (labels[result] ?? result) : "未知结果";
+}
+
+function profitCopy(
+  row: Pick<HandHistoryRowView, "heroProfit" | "heroProfitBB">
+) {
+  if (row.heroProfit === null || row.heroProfitBB === null) {
+    return "结果未知";
+  }
+
+  return `${row.heroProfit >= 0 ? "+" : ""}${formatChips(row.heroProfit)} / ${bbCopy(row.heroProfitBB)}`;
+}
+
+function bbCopy(value: number): string {
+  return `${value >= 0 ? "+" : ""}${formatChips(value)}BB`;
+}
+
+function percentCopy(value: number, total: number): string {
+  return total <= 0 ? "0%" : `${Math.round((value / total) * 100)}%`;
 }
 
 function formatDateTime(value: string): string {

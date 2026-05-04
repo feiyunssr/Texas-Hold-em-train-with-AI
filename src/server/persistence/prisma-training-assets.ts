@@ -10,6 +10,7 @@ import type {
   DecisionSnapshotRecord,
   HandHistoryRow,
   HandReplay,
+  HandReplayStep,
   JsonValue,
   SaveAIArtifactInput,
   SaveDecisionSnapshotInput,
@@ -295,17 +296,44 @@ export class PrismaTrainingAssetRepository implements TrainingAssetRepository {
             ? []
             : [
                 {
-                  labelAssignments: {
-                    some: {
-                      street: filters.street
+                  OR: [
+                    {
+                      labelAssignments: {
+                        some: {
+                          street: filters.street
+                        }
+                      }
+                    },
+                    {
+                      eventLogs: {
+                        some: {
+                          payload: {
+                            path: ["reviewStreet"],
+                            equals: filters.street
+                          }
+                        }
+                      }
+                    },
+                    {
+                      eventLogs: {
+                        some: {
+                          payload: {
+                            path: ["street"],
+                            equals: filters.street
+                          }
+                        }
+                      }
                     }
-                  }
+                  ]
                 }
               ])
         ]
       },
       include: {
         aiArtifacts: true,
+        eventLogs: {
+          orderBy: { sequence: "asc" }
+        },
         labelAssignments: {
           include: { labelDefinition: true }
         },
@@ -428,6 +456,12 @@ export class PrismaTrainingAssetRepository implements TrainingAssetRepository {
     return {
       handId,
       history,
+      steps: buildReplaySteps(
+        hand.eventLogs,
+        hand.tableConfig.startingStack,
+        hand.heroSeatIndex,
+        snapshotsByEventSequence
+      ),
       timeline,
       handReviewArtifacts
     };
@@ -573,6 +607,7 @@ function toWalletLedgerRecord(
 
 type HandHistoryPrismaRecord = {
   id: string;
+  tableConfigId: string;
   status: string;
   startedAt: Date;
   completedAt: Date | null;
@@ -591,6 +626,10 @@ type HandHistoryPrismaRecord = {
       styleProfile: Prisma.JsonValue | null;
     }>;
   };
+  eventLogs?: Array<{
+    eventType: string;
+    payload: Prisma.JsonValue;
+  }>;
   aiArtifacts: Array<{
     artifactKind: string;
   }>;
@@ -625,21 +664,34 @@ function toHandHistoryRow(hand: HandHistoryPrismaRecord): HandHistoryRow {
   );
   const streets = Array.from(
     new Set(
-      hand.labelAssignments
-        .map((assignment) => assignment.street)
-        .filter((street): street is string => Boolean(street))
+      [
+        ...hand.labelAssignments.map((assignment) => assignment.street),
+        ...(hand.eventLogs ?? []).map((event) => eventStreetLike(event.payload))
+      ].filter((street): street is string => Boolean(street))
     )
   );
+  const heroProfit = resolveHeroProfit(hand);
 
   return {
     handId: hand.id,
+    sessionId: hand.tableConfigId,
     status: hand.status,
     startedAt: hand.startedAt,
     completedAt: hand.completedAt,
     completionReason: hand.completionReason,
     playerCount: hand.tableConfig.playerCount,
+    blindLevel: `${hand.tableConfig.smallBlind}/${hand.tableConfig.bigBlind}`,
+    smallBlind: hand.tableConfig.smallBlind,
+    bigBlind: hand.tableConfig.bigBlind,
+    startingStack: hand.tableConfig.startingStack,
     heroSeatIndex: hand.heroSeatIndex,
     heroPosition,
+    heroProfit,
+    heroProfitBB:
+      heroProfit === null
+        ? null
+        : roundToTenth(heroProfit / hand.tableConfig.bigBlind),
+    startingHand: readHeroStartingHand(hand),
     result: resolveHeroResult(hand),
     hasAIArtifacts: hand.aiArtifacts.length > 0,
     hasHeroCoach: hand.aiArtifacts.some(
@@ -648,6 +700,10 @@ function toHandHistoryRow(hand: HandHistoryPrismaRecord): HandHistoryRow {
     hasHandReview: hand.aiArtifacts.some(
       (artifact) => artifact.artifactKind === "HAND_REVIEW"
     ),
+    strategyExecutionCount:
+      hand.eventLogs?.filter((event) =>
+        event.eventType.startsWith("strategy_auto_action_")
+      ).length ?? 0,
     labelKeys,
     streets,
     opponentStyles
@@ -674,18 +730,36 @@ function matchesHandHistoryFilters(
 }
 
 function resolveHeroResult(hand: HandHistoryPrismaRecord): string | null {
+  const heroProfit = resolveHeroProfit(hand);
+
+  if (heroProfit !== null) {
+    if (heroProfit > 0) {
+      return "win";
+    }
+
+    if (heroProfit < 0) {
+      return "loss";
+    }
+
+    return "even";
+  }
+
+  return hand.completionReason;
+}
+
+function resolveHeroProfit(hand: HandHistoryPrismaRecord): number | null {
   const finalState = hand.finalStatePayload;
   if (
     !finalState ||
     typeof finalState !== "object" ||
     Array.isArray(finalState)
   ) {
-    return hand.completionReason;
+    return null;
   }
 
   const seats = finalState["seats"];
   if (!Array.isArray(seats) || hand.heroSeatIndex === null) {
-    return hand.completionReason;
+    return null;
   }
 
   const heroSeat = seats.find(
@@ -696,27 +770,41 @@ function resolveHeroResult(hand: HandHistoryPrismaRecord): string | null {
       seat["seatIndex"] === hand.heroSeatIndex
   );
   if (!heroSeat || typeof heroSeat !== "object" || Array.isArray(heroSeat)) {
-    return hand.completionReason;
+    return null;
   }
 
   const stack = heroSeat["stack"];
   if (typeof stack !== "number") {
-    return hand.completionReason;
+    return null;
   }
 
-  if (stack > hand.tableConfig.startingStack) {
-    return "win";
+  return stack - resolveHeroStartingStack(hand);
+}
+
+function resolveHeroStartingStack(hand: HandHistoryPrismaRecord): number {
+  if (hand.heroSeatIndex === null) {
+    return hand.tableConfig.startingStack;
   }
 
-  if (stack < hand.tableConfig.startingStack) {
-    return "loss";
-  }
+  const handStartedEvent = hand.eventLogs?.find(
+    (event) => event.eventType === "hand_started"
+  );
+  const startingStacks = readPayloadNumberArray(
+    handStartedEvent?.payload ?? null,
+    "startingStacks"
+  );
+  const startingStack = startingStacks[hand.heroSeatIndex];
 
-  return "even";
+  return typeof startingStack === "number"
+    ? startingStack
+    : hand.tableConfig.startingStack;
 }
 
 function eventStreet(record: Prisma.HandEventLogModel): string | null {
-  const payload = record.payload;
+  return eventStreetLike(record.payload);
+}
+
+function eventStreetLike(payload: Prisma.JsonValue): string | null {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     return null;
   }
@@ -732,6 +820,299 @@ function eventStreet(record: Prisma.HandEventLogModel): string | null {
   }
 
   return null;
+}
+
+function readHeroStartingHand(hand: HandHistoryPrismaRecord): string | null {
+  if (hand.heroSeatIndex === null) {
+    return null;
+  }
+
+  const holeCardsEvent = hand.eventLogs?.find((event) => {
+    if (event.eventType !== "hole_cards_dealt") {
+      return false;
+    }
+
+    const payload = event.payload;
+    return (
+      payload !== null &&
+      typeof payload === "object" &&
+      !Array.isArray(payload) &&
+      payload["seatIndex"] === hand.heroSeatIndex
+    );
+  });
+
+  if (!holeCardsEvent) {
+    return null;
+  }
+
+  const payload = holeCardsEvent.payload;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return null;
+  }
+
+  const cards = payload["cards"];
+  if (!Array.isArray(cards) || cards.length < 2) {
+    return null;
+  }
+
+  const [first, second] = cards;
+  return typeof first === "string" && typeof second === "string"
+    ? normalizeStartingHand(first, second)
+    : null;
+}
+
+function normalizeStartingHand(first: string, second: string): string {
+  const rankOrder = "23456789TJQKA";
+  const firstRank = first.slice(0, 1);
+  const secondRank = second.slice(0, 1);
+  const firstSuit = first.slice(1);
+  const secondSuit = second.slice(1);
+
+  if (firstRank === secondRank) {
+    return `${firstRank}${secondRank}`;
+  }
+
+  const ranks =
+    rankOrder.indexOf(firstRank) >= rankOrder.indexOf(secondRank)
+      ? `${firstRank}${secondRank}`
+      : `${secondRank}${firstRank}`;
+
+  return `${ranks}${firstSuit === secondSuit ? "s" : "o"}`;
+}
+
+function buildReplaySteps(
+  eventLogs: Prisma.HandEventLogModel[],
+  startingStack: number,
+  heroSeatIndex: number | null,
+  snapshotsByEventSequence: Map<number | null, Prisma.DecisionSnapshotModel>
+): HandReplayStep[] {
+  const seatStacks = new Map<number, number>();
+  const streetCommitments = new Map<number, number>();
+  const totalCommitments = new Map<number, number>();
+  let street: string | null = "preflop";
+  let potTotal = 0;
+  let currentBet = 0;
+  let board: string[] = [];
+
+  return eventLogs.map((event) => {
+    const payload = event.payload;
+    const referenceSequence = replayReferenceSequence(event);
+
+    if (event.eventType === "hand_started") {
+      seedSeats(payload, seatStacks, startingStack);
+      street = "preflop";
+      potTotal = 0;
+      currentBet = 0;
+      board = [];
+      streetCommitments.clear();
+      totalCommitments.clear();
+    } else if (event.eventType === "forced_bet_posted") {
+      const amount = readPayloadNumber(payload, "amount");
+      const seatIndex = readPayloadNumber(payload, "seatIndex");
+      if (seatIndex !== null && amount !== null) {
+        addCommitment(
+          seatIndex,
+          amount,
+          seatStacks,
+          streetCommitments,
+          totalCommitments
+        );
+        potTotal += amount;
+        currentBet = Math.max(
+          currentBet,
+          streetCommitments.get(seatIndex) ?? 0
+        );
+      }
+    } else if (event.eventType === "player_action") {
+      const seatIndex = readPayloadNumber(payload, "seatIndex");
+      const amount = readPayloadNumber(payload, "amount");
+      const totalBetTo = readPayloadNumber(payload, "totalBetTo");
+      if (seatIndex !== null && amount !== null) {
+        addCommitment(
+          seatIndex,
+          amount,
+          seatStacks,
+          streetCommitments,
+          totalCommitments
+        );
+        potTotal += amount;
+      }
+      currentBet = Math.max(currentBet, totalBetTo ?? currentBet);
+    } else if (event.eventType === "street_advanced") {
+      street = readPayloadString(payload, "street") ?? street;
+      currentBet = 0;
+      streetCommitments.clear();
+    } else if (event.eventType === "board_dealt") {
+      street = readPayloadString(payload, "street") ?? street;
+      const nextBoard = readPayloadStringArray(payload, "board");
+      if (nextBoard.length > 0) {
+        board = nextBoard;
+      }
+    } else if (event.eventType === "hand_completed") {
+      const finalStacks = readPayloadNumberArray(payload, "finalStacks");
+      finalStacks.forEach((stack, seatIndex) =>
+        seatStacks.set(seatIndex, stack)
+      );
+    }
+
+    const snapshot = snapshotsByEventSequence.get(referenceSequence);
+    return {
+      sequence: replayDisplaySequence(event),
+      eventType: event.eventType,
+      street: eventStreet(event) ?? street,
+      summary: summarizeReplayEvent(event.eventType, payload),
+      potTotal,
+      currentBet,
+      board: [...board],
+      heroStack:
+        heroSeatIndex === null ? null : (seatStacks.get(heroSeatIndex) ?? null),
+      heroStreetCommitment:
+        heroSeatIndex === null
+          ? null
+          : (streetCommitments.get(heroSeatIndex) ?? 0),
+      heroTotalCommitment:
+        heroSeatIndex === null
+          ? null
+          : (totalCommitments.get(heroSeatIndex) ?? 0),
+      actingSeatIndex: snapshot?.actingSeatIndex ?? null,
+      legalActionTypes: readLegalActionTypes(snapshot?.legalActions)
+    };
+  });
+}
+
+function seedSeats(
+  payload: Prisma.JsonValue,
+  seatStacks: Map<number, number>,
+  startingStack: number
+): void {
+  const startingStacks = readPayloadNumberArray(payload, "startingStacks");
+  const playerCount =
+    readPayloadNumber(payload, "playerCount") ?? startingStacks.length;
+  seatStacks.clear();
+  for (let seatIndex = 0; seatIndex < playerCount; seatIndex += 1) {
+    seatStacks.set(seatIndex, startingStacks[seatIndex] ?? startingStack);
+  }
+}
+
+function addCommitment(
+  seatIndex: number,
+  amount: number,
+  seatStacks: Map<number, number>,
+  streetCommitments: Map<number, number>,
+  totalCommitments: Map<number, number>
+): void {
+  seatStacks.set(seatIndex, (seatStacks.get(seatIndex) ?? 0) - amount);
+  streetCommitments.set(
+    seatIndex,
+    (streetCommitments.get(seatIndex) ?? 0) + amount
+  );
+  totalCommitments.set(
+    seatIndex,
+    (totalCommitments.get(seatIndex) ?? 0) + amount
+  );
+}
+
+function summarizeReplayEvent(
+  eventType: string,
+  payload: Prisma.JsonValue
+): string {
+  if (eventType === "player_action") {
+    const seatIndex = readPayloadNumber(payload, "seatIndex");
+    const action = readPayloadString(payload, "action");
+    const amount = readPayloadNumber(payload, "amount") ?? 0;
+    return `座位 ${seatIndex === null ? "?" : seatIndex + 1} ${action ?? "行动"} ${amount}`;
+  }
+
+  if (eventType === "forced_bet_posted") {
+    return `${readPayloadString(payload, "kind") ?? "forced bet"} ${readPayloadNumber(payload, "amount") ?? 0}`;
+  }
+
+  if (eventType === "board_dealt") {
+    return `公共牌 ${readPayloadStringArray(payload, "cards").join(" ")}`;
+  }
+
+  if (eventType === "hand_completed") {
+    return `手牌结束：${readPayloadString(payload, "reason") ?? "-"}`;
+  }
+
+  if (eventType.startsWith("strategy_auto_action_")) {
+    return "翻前策略审计事件";
+  }
+
+  return eventType;
+}
+
+function readLegalActionTypes(value: Prisma.JsonValue | undefined): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((action) => {
+      if (!action || typeof action !== "object" || Array.isArray(action)) {
+        return null;
+      }
+
+      const type = action["type"];
+      return typeof type === "string" ? type : null;
+    })
+    .filter((type): type is string => type !== null);
+}
+
+function readPayloadNumber(
+  payload: Prisma.JsonValue,
+  key: string
+): number | null {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return null;
+  }
+
+  const value = payload[key];
+  return typeof value === "number" ? value : null;
+}
+
+function readPayloadString(
+  payload: Prisma.JsonValue,
+  key: string
+): string | null {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return null;
+  }
+
+  const value = payload[key];
+  return typeof value === "string" ? value : null;
+}
+
+function readPayloadStringArray(
+  payload: Prisma.JsonValue,
+  key: string
+): string[] {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return [];
+  }
+
+  const value = payload[key];
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
+}
+
+function readPayloadNumberArray(
+  payload: Prisma.JsonValue,
+  key: string
+): number[] {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return [];
+  }
+
+  const value = payload[key];
+  return Array.isArray(value)
+    ? value.filter((item): item is number => typeof item === "number")
+    : [];
+}
+
+function roundToTenth(value: number): number {
+  return Math.round(value * 10) / 10;
 }
 
 function extractHandReviewInsights(

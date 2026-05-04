@@ -141,12 +141,23 @@
 - `TrainingEntry` 已在座位 token 轻量展示 VPIP/PFR/Hands，在侧栏新增 Session HUD 面板展示 VPIP、PFR、3Bet、ATS 和 AI 座位标记编辑。
 - 验证：`npm test -- src/domain/bot-strategy/index.test.ts src/server/training-runtime/index.test.ts`、`npm run typecheck`、`npm run lint`、`npm test`。
 
-### M10：PokerCraft 类历史分析
+### M10：PokerCraft 类历史分析（已完成 2026-05-04）
 
 - 扩展持久化 read model：session、策略执行、HUD 统计、起手牌矩阵、位置结果。
 - 升级历史面板和单手回放，支持逐步播放与底池/筹码变化。
 - 新增统计页面或侧栏 tab：盈亏曲线、位置、起手牌、对手风格、问题标签。
 - 验收：用户能从历史中定位一类重复错误，并回放到具体决策点。
+
+执行结果：
+
+- 持久化历史 read model 已扩展 sessionId、盲注层级、起始筹码、Hero 盈亏/BB、Hero 起手牌、策略执行事件数量，并从持久化事件流补充街道覆盖。
+- `GET /api/training/history` 已新增 analytics 汇总，包含总手数、净 BB、盈利曲线、session 汇总、位置结果、起手牌表现、对手风格表现和问题标签聚合。
+- `GET /api/training/history/:handId` 已新增 `steps` 回放快照，通过事件流重建每步底池、当前下注、Hero 筹码/投入、公共牌，并挂载对应决策点的合法动作类型。
+- Review follow-up：多手 session 的每手 `hand_started` 事件会记录实际起始栈；历史盈亏、结果筛选和回放快照均以该手起始栈为准，街道筛选也重新下推到 Prisma 查询阶段再分页。
+- Review follow-up 验证：`npm test -- src/server/persistence/prisma-training-assets.test.ts src/domain/poker/index.test.ts src/server/training-runtime/persistence.test.ts`、`npm run typecheck`、`npm run lint`、`npm test`。
+- `TrainingEntry` 历史侧栏已新增 PokerCraft 类统计区，展示盈利曲线、位置/起手牌/对手风格/问题标签 bucket；历史行展示结果、盈亏、起手牌和策略事件数。
+- 单手回放已升级为逐步播放控件，支持上一/下一步、按街道跳转、当前步骤底池/筹码/合法动作快照和事件时间线定位。
+- 验证：`npm run typecheck`、`npm test -- src/server/persistence/training-assets.test.ts src/server/training-runtime/persistence.test.ts`、`npm run lint`、`npm test`、`npm run format`。
 
 ### M11：Rush/Fast-Fold 与高频训练
 

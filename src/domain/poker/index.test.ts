@@ -105,6 +105,15 @@ describe("legal actions and event log", () => {
       "incomplete-all-in"
     );
 
+    expect(hand.events[0]).toEqual(
+      expect.objectContaining({
+        type: "hand_started",
+        payload: expect.objectContaining({
+          startingStacks: [200, 200, 200, 170]
+        })
+      })
+    );
+
     hand = applyAction(hand, action(hand, "call", 20));
     hand = applyAction(hand, action(hand, "call", 20));
     hand = applyAction(hand, action(hand, "call", 10));

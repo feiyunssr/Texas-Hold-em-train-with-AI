@@ -92,20 +92,44 @@ export type WalletLedgerRecord = {
 
 export type HandHistoryRow = {
   handId: string;
+  sessionId: string;
   status: string;
   startedAt: Date;
   completedAt: Date | null;
   completionReason: string | null;
   playerCount: number;
+  blindLevel: string;
+  smallBlind: number;
+  bigBlind: number;
+  startingStack: number;
   heroSeatIndex: number | null;
   heroPosition: string | null;
+  heroProfit: number | null;
+  heroProfitBB: number | null;
+  startingHand: string | null;
   result: string | null;
   hasAIArtifacts: boolean;
   hasHeroCoach: boolean;
   hasHandReview: boolean;
+  strategyExecutionCount: number;
   labelKeys: string[];
   streets: string[];
   opponentStyles: string[];
+};
+
+export type HandReplayStep = {
+  sequence: number;
+  eventType: string;
+  street: string | null;
+  summary: string;
+  potTotal: number;
+  currentBet: number;
+  board: string[];
+  heroStack: number | null;
+  heroStreetCommitment: number | null;
+  heroTotalCommitment: number | null;
+  actingSeatIndex: number | null;
+  legalActionTypes: string[];
 };
 
 export type DecisionAuditTrail = {
@@ -130,6 +154,7 @@ export type HandHistoryFilters = {
 export type HandReplay = {
   handId: string;
   history: HandHistoryRow;
+  steps: HandReplayStep[];
   timeline: Array<
     StoredHandEvent & {
       street: string | null;

@@ -18,9 +18,7 @@ describe("training runtime persistence", () => {
       ]
     } as unknown as HandReviewView);
 
-    expect(
-      entries.map((event) => [event.sequence, event.eventType])
-    ).toEqual([
+    expect(entries.map((event) => [event.sequence, event.eventType])).toEqual([
       [1000, "player_action"],
       [1001, "strategy_auto_action_evaluated"],
       [1002, "strategy_auto_action_submitted"],
@@ -46,7 +44,11 @@ function handEvent(sequence: number, type: string) {
   };
 }
 
-function strategyEvent(sequence: number, type: string, decisionSequence: number) {
+function strategyEvent(
+  sequence: number,
+  type: string,
+  decisionSequence: number
+) {
   return {
     sequence,
     type,

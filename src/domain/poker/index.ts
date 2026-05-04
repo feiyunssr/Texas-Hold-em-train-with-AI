@@ -93,6 +93,7 @@ export type HandEvent =
         buttonSeat: number;
         smallBlindSeat: number;
         bigBlindSeat: number;
+        startingStacks: number[];
       };
     }
   | {
@@ -277,7 +278,8 @@ export function createHand(
       playerCount: config.playerCount,
       buttonSeat,
       smallBlindSeat,
-      bigBlindSeat
+      bigBlindSeat,
+      startingStacks
     }
   });
 

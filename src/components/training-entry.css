@@ -522,6 +522,18 @@ button:disabled {
   padding: var(--space-1) var(--space-2);
 }
 
+.iconButton {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  min-height: 40px;
+  border-color: var(--color-border-default);
+  background: var(--color-surface-panel);
+  color: var(--color-text-primary);
+  font-size: 18px;
+  line-height: 1;
+}
+
 .quickSizes button {
   background: var(--color-surface-subtle);
   color: var(--color-text-primary);
@@ -941,6 +953,91 @@ button:disabled {
   padding: var(--space-2);
 }
 
+.historyAnalytics {
+  display: grid;
+  gap: var(--space-3);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-subtle);
+  padding: var(--space-3);
+}
+
+.metricGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.metricTile {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.metricTile span,
+.bucketList span,
+.replayMeta span,
+.stepSnapshot span {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.metricTile strong {
+  font-size: 16px;
+  line-height: 22px;
+}
+
+.profitCurve {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(4px, 1fr));
+  align-items: end;
+  gap: 4px;
+  min-height: 76px;
+}
+
+.profitCurve small {
+  grid-column: 1 / -1;
+  color: var(--color-text-secondary);
+}
+
+.profitBar {
+  min-height: 8px;
+  height: var(--bar-height);
+  border-radius: 4px 4px 0 0;
+}
+
+.profitBar.up {
+  background: var(--color-success);
+}
+
+.profitBar.down {
+  background: var(--color-danger);
+}
+
+.analyticsBuckets {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.bucketList {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.bucketList strong {
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.bucketRow {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
 .emptyHistory {
   display: grid;
   gap: var(--space-3);
@@ -1002,6 +1099,62 @@ button:disabled {
   line-height: 20px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.replayMeta,
+.stepSnapshot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.replayStepper {
+  display: grid;
+  gap: var(--space-2);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-subtle);
+  padding: var(--space-3);
+}
+
+.replayStepper p {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.stepperControls,
+.streetJump {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.stepperControls strong {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  line-height: 20px;
+  text-align: center;
+}
+
+.replayEventButton {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  text-align: left;
+}
+
+.activeReplayEvent {
+  color: var(--color-text-primary);
+}
+
+.activeReplayEvent .replayEventButton {
+  font-weight: 800;
 }
 
 .replayView li {
