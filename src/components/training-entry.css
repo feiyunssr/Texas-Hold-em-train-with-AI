@@ -106,12 +106,6 @@
   gap: var(--space-3);
 }
 
-.opponentRail {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(118px, 1fr));
-  gap: var(--space-2);
-}
-
 .seatToken {
   display: grid;
   gap: var(--space-2);
@@ -181,20 +175,58 @@
 .pokerTable {
   display: grid;
   place-items: center;
-  min-height: 440px;
+  position: relative;
+  min-height: 560px;
   border: 18px solid var(--color-table-rail);
   border-radius: 999px;
   background:
     radial-gradient(circle at center, rgb(255 255 255 / 7%), transparent 42%),
     var(--color-table-felt);
   color: var(--color-text-inverse);
+  isolation: isolate;
+  overflow: visible;
+}
+
+.tableSeatLayer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.pokerTable .seatToken {
+  position: absolute;
+  top: var(--seat-y);
+  left: var(--seat-x);
+  width: 146px;
+  min-height: 88px;
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
+}
+
+.seatCount-9 .seatToken,
+.seatCount-12 .seatToken {
+  width: 126px;
+  min-height: 82px;
+}
+
+.seatCount-12 .seatToken {
+  width: 112px;
+  gap: 6px;
+  padding: 8px;
+}
+
+.seatCount-12 .seatFacts span:nth-child(3) {
+  display: none;
 }
 
 .tableCenter {
   display: grid;
   place-items: center;
   gap: var(--space-4);
-  width: min(92%, 560px);
+  position: relative;
+  z-index: 1;
+  width: min(62%, 480px);
   text-align: center;
 }
 
@@ -680,14 +712,10 @@ button:disabled {
     grid-column: 1 / -1;
   }
 
-  .opponentRail {
-    display: grid;
-    grid-template-columns: repeat(6, minmax(54px, 1fr));
-    gap: 6px;
-    order: 1;
-  }
-
-  .seatToken {
+  .pokerTable .seatToken,
+  .seatCount-9 .seatToken,
+  .seatCount-12 .seatToken {
+    width: 68px;
     min-height: 58px;
     padding: 6px;
   }
@@ -715,14 +743,14 @@ button:disabled {
   }
 
   .pokerTable {
-    min-height: 260px;
+    min-height: 380px;
     border-width: 10px;
     border-radius: 48px;
-    order: 2;
+    order: 1;
   }
 
   .tableCenter {
-    width: 94%;
+    width: min(58%, 260px);
     gap: var(--space-2);
   }
 
@@ -741,7 +769,7 @@ button:disabled {
   }
 
   .heroZone {
-    order: 3;
+    order: 2;
     padding: var(--space-3);
   }
 
@@ -789,8 +817,10 @@ button:disabled {
     padding-left: var(--space-2);
   }
 
-  .opponentRail {
-    grid-template-columns: repeat(4, minmax(54px, 1fr));
+  .pokerTable .seatToken,
+  .seatCount-9 .seatToken,
+  .seatCount-12 .seatToken {
+    width: 60px;
   }
 
   .tableConfigurator {

@@ -6,6 +6,24 @@ No open documentation TODOs.
 
 ## Completed
 
+### 2026-05-04: Place player state around the poker table
+
+- **Result:** Player state tokens now render around the felt table at their visual seat positions instead of as a top rail above the table.
+- **Closed by:** Moved seat tokens into the table surface in [`src/components/training-entry.tsx`](src/components/training-entry.tsx), added Hero-relative ring positioning, and updated [`src/components/training-entry.css`](src/components/training-entry.css) for desktop and mobile compressed table layouts.
+- **Validation:** `npm run typecheck`, `npm run lint`, `npx prettier --check src/components/training-entry.tsx src/components/training-entry.css`, `npm run build`, and `curl http://localhost:3000/health`.
+
+### 2026-05-04: Fix LAN dev origin blocking client interactivity
+
+- **Result:** Buttons are no longer blocked when the dev server is opened through the advertised network URL `http://192.168.1.242:3000`.
+- **Closed by:** Added `192.168.1.242` to Next.js `allowedDevOrigins` in [`next.config.ts`](next.config.ts) and documented the LAN run note in [`README.md`](README.md).
+- **Validation:** Restarted `npm run dev`, confirmed `/health` and `POST /api/training/tables` still work on port 3000, confirmed the previous Next.js "Blocked cross-origin request to Next.js dev resource" log no longer appears, and ran `npm run typecheck`, `npm run lint`, and `npm run build`.
+
+### 2026-05-04: Verify current runtime readiness
+
+- **Result:** Project can build and start the Next.js dev server at `http://localhost:3000`, and the in-memory training table flow is reachable.
+- **Validation:** `npm run typecheck`, `npm run lint`, `npm test`, `npm run build`, `curl http://localhost:3000/health`, homepage HTTP smoke check, and `POST /api/training/tables` smoke check.
+- **Runtime note:** Full history, replay, review, and charged AI persistence paths are not fully runnable in the current shell because no local `.env` exists and `DATABASE_URL` is unset; `GET /api/training/history` returns `DATABASE_URL must be set before creating PrismaClient.`
+
 ### 2026-04-29: Complete M6 review, history, and replay foundation
 
 - **Result:** Completed in [`src/server/hand-review`](src/server/hand-review), [`src/ai/hand-review.ts`](src/ai/hand-review.ts), [`src/app/api/training/history`](src/app/api/training/history), [`src/app/api/training/tables/[tableId]/review`](src/app/api/training/tables/[tableId]/review), and [`src/components/training-entry.tsx`](src/components/training-entry.tsx).

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 
 import type { HeroCoachAdvice } from "@/ai/hero-coach";
 import type { HandReview } from "@/ai/hand-review";
@@ -896,19 +897,29 @@ function NumberField({
 
 function PokerTable({ snapshot }: { snapshot: TrainingTableSnapshot | null }) {
   const seats = snapshot?.hand.seats ?? [];
+  const playerCount = snapshot?.config.playerCount ?? seats.length;
+  const heroSeatIndex =
+    snapshot?.config.heroSeatIndex ??
+    seats.find((seat) => seat.isHero)?.seatIndex ??
+    0;
 
   return (
     <section className="tableStage" aria-label="实时训练牌桌">
-      <div className="opponentRail" aria-label="座位状态">
-        {seats.map((seat) => (
-          <SeatToken
-            key={seat.seatIndex}
-            seat={seat}
-            currentActorSeat={snapshot?.hand.currentActorSeat ?? null}
-          />
-        ))}
-      </div>
-      <div className="pokerTable">
+      <div className={`pokerTable seatCount-${playerCount}`}>
+        <div className="tableSeatLayer" aria-label="座位状态">
+          {seats.map((seat) => (
+            <SeatToken
+              key={seat.seatIndex}
+              seat={seat}
+              currentActorSeat={snapshot?.hand.currentActorSeat ?? null}
+              style={seatPositionStyle(
+                seat.seatIndex,
+                heroSeatIndex,
+                playerCount
+              )}
+            />
+          ))}
+        </div>
         <div className="tableCenter">
           <div className="streetPill">
             {snapshot ? STREET_LABELS[snapshot.hand.street] : "等待开桌"}
@@ -945,10 +956,12 @@ function PokerTable({ snapshot }: { snapshot: TrainingTableSnapshot | null }) {
 
 function SeatToken({
   seat,
-  currentActorSeat
+  currentActorSeat,
+  style
 }: {
   seat: PublicSeatState;
   currentActorSeat: number | null;
+  style?: SeatPositionStyle;
 }) {
   const markers = [
     seat.isButton ? "D" : null,
@@ -964,6 +977,7 @@ function SeatToken({
         seat.seatIndex === currentActorSeat ? "currentSeatToken" : "",
         seat.status === "folded" ? "foldedSeatToken" : ""
       ].join(" ")}
+      style={style}
     >
       <div className="seatTopline">
         <span className="avatar">{initials(seat.displayName)}</span>
@@ -984,6 +998,30 @@ function SeatToken({
       </div>
     </div>
   );
+}
+
+type SeatPositionStyle = CSSProperties & {
+  "--seat-x": string;
+  "--seat-y": string;
+};
+
+function seatPositionStyle(
+  seatIndex: number,
+  heroSeatIndex: number,
+  playerCount: number
+): SeatPositionStyle {
+  const normalizedPlayerCount = Math.max(playerCount, 1);
+  const relativeSeat =
+    (seatIndex - heroSeatIndex + normalizedPlayerCount) % normalizedPlayerCount;
+  const angle =
+    Math.PI / 2 + (relativeSeat * Math.PI * 2) / normalizedPlayerCount;
+  const x = 50 + Math.cos(angle) * 44;
+  const y = 50 + Math.sin(angle) * 42;
+
+  return {
+    "--seat-x": `${x.toFixed(2)}%`,
+    "--seat-y": `${y.toFixed(2)}%`
+  };
 }
 
 function HeroZone({ snapshot }: { snapshot: TrainingTableSnapshot | null }) {

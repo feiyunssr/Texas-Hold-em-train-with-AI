@@ -22,6 +22,7 @@
 - 安装依赖：`npm install`
 - 启动开发服务器：`npm run dev`
 - 打开首页：`http://localhost:3000`
+- 如需从局域网设备访问开发服务器，可打开 `http://192.168.1.242:3000`；该来源已加入 `next.config.ts` 的 `allowedDevOrigins`，避免 Next.js dev 资源被跨源拦截导致按钮无响应。
 - 健康检查：`http://localhost:3000/health`
 - AI 教练建议的超时时间、自动重试次数和重试退避时间通过 `.env` 配置，变量名参考 [.env.example](.env.example)。
 - 训练资产持久化使用 PostgreSQL + Prisma，`DATABASE_URL` 也通过 `.env` 配置。
