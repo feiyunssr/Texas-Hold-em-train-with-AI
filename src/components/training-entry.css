@@ -58,7 +58,7 @@
 
 .tableConfigurator {
   display: grid;
-  grid-template-columns: repeat(8, minmax(88px, 1fr));
+  grid-template-columns: repeat(9, minmax(88px, 1fr));
   gap: var(--space-2);
   align-items: end;
   border: 1px solid var(--color-border-default);

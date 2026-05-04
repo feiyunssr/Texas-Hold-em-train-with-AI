@@ -84,10 +84,13 @@ type RuntimeSession = {
   hud: RuntimeHudState;
   currentHandHud: RuntimeCurrentHandHud;
   botDecisionTraces: BotDecisionTrace[];
+  latestReviewableFastFoldHand: HandReviewView | null;
   nextRuntimeSequence: number;
   createdAt: Date;
   updatedAt: Date;
 };
+
+type StartNextHandReason = "manual" | "fast_fold";
 
 type RuntimeHeroPreflopStrategyState = {
   config: PreflopStrategyConfig;
@@ -191,6 +194,7 @@ export class TrainingTableRuntime {
         createRuntimeId(`${tableId}-hand`, 1)
       ),
       botDecisionTraces: [],
+      latestReviewableFastFoldHand: null,
       nextRuntimeSequence: 1,
       createdAt: now,
       updatedAt: now
@@ -200,14 +204,18 @@ export class TrainingTableRuntime {
     session = appendRuntimeEvent(session, "table_created", {
       tableId,
       playerCount: config.playerCount,
-      heroSeatIndex: config.heroSeatIndex
+      heroSeatIndex: config.heroSeatIndex,
+      tableMode: config.tableMode
     });
     session = appendRuntimeEvent(session, "hand_started", {
       handId: session.handId,
       handNumber: session.handNumber,
       buttonSeat: hand.buttonSeat,
       smallBlindSeat: hand.smallBlindSeat,
-      bigBlindSeat: hand.bigBlindSeat
+      bigBlindSeat: hand.bigBlindSeat,
+      startingStacks: hand.seats.map(
+        (seat) => seat.stack + seat.totalCommitment
+      )
     });
     session = appendNewHandEvents(session, []);
     session = appendHudUpdatedEvent(session, "hand_started");
@@ -269,6 +277,10 @@ export class TrainingTableRuntime {
     const session = this.requireSession(tableId);
 
     if (session.hand.street !== "complete") {
+      if (session.latestReviewableFastFoldHand) {
+        return session.latestReviewableFastFoldHand;
+      }
+
       throw new TrainingRuntimeError(
         "hand_not_complete",
         "Hand review view can only be built after the hand is complete."
@@ -397,12 +409,15 @@ export class TrainingTableRuntime {
 
     try {
       const previousPublicEventCount = session.publicEvents.length;
-      session = this.applyRuntimeAction(session, {
+      const action = {
         seatIndex: heroSeatIndex,
         type: input.type,
         amount: input.amount
-      });
-      session = this.advanceAutomation(session);
+      };
+      session = this.applyRuntimeAction(session, action);
+      session = shouldFastFoldAfterHeroAction(session, action)
+        ? this.abandonFastFoldHandAndStartNext(session, action, 0)
+        : this.advanceAutomation(session);
       this.sessions.set(tableId, session);
 
       const snapshot = buildTableSnapshot(session);
@@ -591,50 +606,10 @@ export class TrainingTableRuntime {
       };
     }
 
-    const handNumber = session.handNumber + 1;
-    const startingStacks = session.hand.seats.map((seat) =>
-      seat.stack > 0 ? seat.stack : session.config.startingStack
-    );
     const previousPublicEventCount = session.publicEvents.length;
-    const nextConfig = {
-      ...session.config,
-      buttonSeat: (session.hand.buttonSeat + 1) % session.config.playerCount
-    };
-    const hand = createRuntimeHand(
-      nextConfig,
-      session.seedBase,
-      handNumber,
-      startingStacks
+    session = this.advanceAutomation(
+      this.startNextRuntimeHand(session, "manual")
     );
-    session = {
-      ...session,
-      handId: createRuntimeId(`${session.tableId}-hand`, handNumber),
-      handNumber,
-      config: nextConfig,
-      hand,
-      status: "bot_acting",
-      endReason: null,
-      heroCoachRequests: new Map(),
-      heroPreflopStrategy: {
-        ...session.heroPreflopStrategy,
-        current: null
-      },
-      currentHandHud: createCurrentHandHud(
-        createRuntimeId(`${session.tableId}-hand`, handNumber)
-      ),
-      updatedAt: new Date()
-    };
-    session = startHudHand(session);
-    session = appendRuntimeEvent(session, "hand_started", {
-      handId: session.handId,
-      handNumber,
-      buttonSeat: hand.buttonSeat,
-      smallBlindSeat: hand.smallBlindSeat,
-      bigBlindSeat: hand.bigBlindSeat
-    });
-    session = appendNewHandEvents(session, []);
-    session = appendHudUpdatedEvent(session, "hand_started");
-    session = this.advanceAutomation(session);
     this.sessions.set(tableId, session);
 
     const snapshot = buildTableSnapshot(session);
@@ -688,7 +663,10 @@ export class TrainingTableRuntime {
     };
   }
 
-  private advanceAutomation(session: RuntimeSession): RuntimeSession {
+  private advanceAutomation(
+    session: RuntimeSession,
+    fastFoldChainCount = 0
+  ): RuntimeSession {
     let nextSession = this.advanceBots(session);
     let guard = 0;
 
@@ -749,10 +727,69 @@ export class TrainingTableRuntime {
         break;
       }
 
-      nextSession = this.advanceBots(nextSession);
+      if (shouldFastFoldAfterHeroAction(nextSession, evaluation.action)) {
+        nextSession = this.abandonFastFoldHandAndStartNext(
+          nextSession,
+          evaluation.action,
+          fastFoldChainCount
+        );
+      } else {
+        nextSession = this.advanceBots(nextSession);
+      }
     }
 
     return nextSession;
+  }
+
+  private abandonFastFoldHandAndStartNext(
+    session: RuntimeSession,
+    action: PlayerAction,
+    fastFoldChainCount: number
+  ): RuntimeSession {
+    const abandonedHandId = session.handId;
+    const heroSeat = session.hand.seats[session.config.heroSeatIndex];
+    const latestHandSequence = getLastHandEventSequence(session);
+    let nextSession = appendRuntimeEvent(session, "fast_fold_abandoned", {
+      handId: abandonedHandId,
+      handNumber: session.handNumber,
+      reason: "hero_fold",
+      heroSeatIndex: session.config.heroSeatIndex,
+      heroStack: heroSeat?.stack ?? 0,
+      heroStreetCommitment: heroSeat?.streetCommitment ?? 0,
+      heroTotalCommitment: heroSeat?.totalCommitment ?? 0,
+      action,
+      abandonedAtHandSequence: latestHandSequence,
+      lifecycle: "fast_fold_abandoned"
+    });
+    nextSession = {
+      ...nextSession,
+      latestReviewableFastFoldHand: buildHandReviewView(
+        nextSession,
+        "fast_fold_abandoned"
+      )
+    };
+
+    nextSession = this.startNextRuntimeHand(nextSession, "fast_fold");
+    nextSession = this.advanceBots(nextSession);
+
+    nextSession = appendRuntimeEvent(nextSession, "runtime_snapshot", {
+      status: nextSession.status,
+      endReason: nextSession.endReason,
+      currentActorSeat: nextSession.hand.currentActorSeat,
+      street: nextSession.hand.street,
+      fastFoldAbandonedHandId: abandonedHandId
+    });
+
+    if (fastFoldChainCount >= 20) {
+      return appendRuntimeEvent(nextSession, "strategy_auto_action_skipped", {
+        reason: "fast_fold_chain_limit",
+        message:
+          "Fast-fold auto strategy stopped after 20 immediate folds in one runtime advance.",
+        handId: nextSession.handId
+      });
+    }
+
+    return this.advanceAutomation(nextSession, fastFoldChainCount + 1);
   }
 
   private advanceBots(session: RuntimeSession): RuntimeSession {
@@ -854,6 +891,67 @@ export class TrainingTableRuntime {
       actionStreet,
       session.hand
     );
+
+    return nextSession;
+  }
+
+  private startNextRuntimeHand(
+    session: RuntimeSession,
+    reason: StartNextHandReason
+  ): RuntimeSession {
+    const handNumber = session.handNumber + 1;
+    const handId = createRuntimeId(`${session.tableId}-hand`, handNumber);
+    const startingStacks = buildNextHandStartingStacks(session, reason);
+    const nextConfig = buildNextHandConfig(session, handNumber, reason);
+    const hand = createRuntimeHand(
+      nextConfig,
+      session.seedBase,
+      handNumber,
+      startingStacks
+    );
+    const seatProfiles =
+      reason === "fast_fold"
+        ? createFastFoldSeatProfiles(session, nextConfig, handNumber)
+        : session.seatProfiles;
+    let nextSession: RuntimeSession = {
+      ...session,
+      handId,
+      handNumber,
+      config: nextConfig,
+      seatProfiles,
+      hand,
+      status: "bot_acting",
+      endReason: null,
+      heroCoachRequests: new Map(),
+      heroPreflopStrategy: {
+        ...session.heroPreflopStrategy,
+        current: null
+      },
+      hud: buildNextHandHud(session, nextConfig, reason),
+      currentHandHud: createCurrentHandHud(handId),
+      botDecisionTraces:
+        reason === "fast_fold" ? [] : session.botDecisionTraces,
+      latestReviewableFastFoldHand:
+        reason === "fast_fold" ? session.latestReviewableFastFoldHand : null,
+      updatedAt: new Date()
+    };
+
+    nextSession = startHudHand(nextSession);
+    nextSession = appendRuntimeEvent(nextSession, "hand_started", {
+      handId: nextSession.handId,
+      handNumber,
+      buttonSeat: hand.buttonSeat,
+      smallBlindSeat: hand.smallBlindSeat,
+      bigBlindSeat: hand.bigBlindSeat,
+      startingStacks,
+      tableMode: nextConfig.tableMode,
+      startReason: reason,
+      aiStyles: seatProfiles
+        .filter((profile) => !profile.isHero)
+        .map((profile) => profile.style)
+    });
+    nextSession = appendNewHandEvents(nextSession, []);
+    nextSession = appendHudUpdatedEvent(nextSession, "hand_started");
 
     return nextSession;
   }
@@ -1028,19 +1126,26 @@ export function buildHeroCoachView(session: RuntimeSession): HeroCoachView {
   };
 }
 
-export function buildHandReviewView(session: RuntimeSession): HandReviewView {
+export function buildHandReviewView(
+  session: RuntimeSession,
+  lifecycle: HandReviewView["lifecycle"] = "completed"
+): HandReviewView {
   const timeline = buildHandReviewTimeline(session.hand.events);
 
   return {
     tableId: session.tableId,
     handId: session.handId,
     handNumber: session.handNumber,
+    lifecycle,
     tableConfig: session.config,
     heroSeatIndex: session.config.heroSeatIndex,
     buttonSeat: session.hand.buttonSeat,
     smallBlindSeat: session.hand.smallBlindSeat,
     bigBlindSeat: session.hand.bigBlindSeat,
-    completionReason: session.hand.completionReason,
+    completionReason:
+      lifecycle === "fast_fold_abandoned"
+        ? "fast_fold_abandoned"
+        : (session.hand.completionReason ?? null),
     board: session.hand.board,
     potTotal: calculatePotTotal(session.hand),
     awards: session.hand.awards,
@@ -1059,7 +1164,10 @@ export function buildHandReviewView(session: RuntimeSession): HandReviewView {
         finalStack: seat.stack,
         totalCommitment: seat.totalCommitment,
         status: seat.status,
-        holeCards: seat.holeCards,
+        holeCards:
+          lifecycle === "fast_fold_abandoned" && !profile.isHero
+            ? []
+            : seat.holeCards,
         position: getSeatPosition(session.hand, seat.seatIndex)
       };
     }),
@@ -1427,6 +1535,17 @@ function normalizeCreateInput(
     assertNonNegativeInteger(input.ante, "ante");
   }
 
+  if (
+    input.tableMode !== undefined &&
+    input.tableMode !== "standard" &&
+    input.tableMode !== "fast_fold"
+  ) {
+    throw new TrainingRuntimeError(
+      "invalid_config",
+      "tableMode must be standard or fast_fold."
+    );
+  }
+
   const heroSeatIndex = input.heroSeatIndex ?? 0;
   const buttonSeat = input.buttonSeat ?? 0;
   validateSeatIndex(heroSeatIndex, input.playerCount, "heroSeatIndex");
@@ -1456,7 +1575,8 @@ function normalizeCreateInput(
     straddleAmount: input.straddleAmount,
     heroSeatIndex,
     buttonSeat,
-    aiStyles: normalizeStyles(input.aiStyles, input.playerCount - 1)
+    aiStyles: normalizeStyles(input.aiStyles, input.playerCount - 1),
+    tableMode: input.tableMode ?? "standard"
   };
 }
 
@@ -1500,6 +1620,89 @@ function createSeatProfiles(config: TrainingTableConfig): RuntimeSeatProfile[] {
   });
 }
 
+function createFastFoldSeatProfiles(
+  session: RuntimeSession,
+  config: TrainingTableConfig,
+  handNumber: number
+): RuntimeSeatProfile[] {
+  const stylePool = buildFastFoldStylePool(config);
+
+  return Array.from({ length: config.playerCount }, (_, seatIndex) => {
+    const existing = session.seatProfiles[seatIndex];
+    if (seatIndex === config.heroSeatIndex) {
+      return {
+        ...existing,
+        seatIndex,
+        isHero: true,
+        style: "hero"
+      };
+    }
+
+    const style =
+      stylePool[
+        seededIndex(
+          `${session.seedBase}:${handNumber}:style:${seatIndex}`,
+          stylePool.length
+        )
+      ];
+
+    return {
+      seatIndex,
+      playerId: `pool-${handNumber}-${seatIndex}`,
+      displayName: `Pool AI ${
+        seededIndex(`${session.seedBase}:${handNumber}:name:${seatIndex}`, 97) +
+        1
+      }`,
+      isHero: false,
+      style,
+      colorTag: "none",
+      note: ""
+    };
+  });
+}
+
+function buildFastFoldStylePool(config: TrainingTableConfig): BotStyle[] {
+  return Array.from(new Set([...config.aiStyles, ...DEFAULT_BOT_STYLES]));
+}
+
+function buildNextHandStartingStacks(
+  session: RuntimeSession,
+  reason: StartNextHandReason
+): number[] {
+  if (reason !== "fast_fold") {
+    return session.hand.seats.map((seat) =>
+      seat.stack > 0 ? seat.stack : session.config.startingStack
+    );
+  }
+
+  return session.hand.seats.map((seat) =>
+    seat.seatIndex === session.config.heroSeatIndex
+      ? Math.max(0, seat.stack)
+      : session.config.startingStack
+  );
+}
+
+function buildNextHandConfig(
+  session: RuntimeSession,
+  handNumber: number,
+  reason: StartNextHandReason
+): TrainingTableConfig {
+  if (reason !== "fast_fold") {
+    return {
+      ...session.config,
+      buttonSeat: (session.hand.buttonSeat + 1) % session.config.playerCount
+    };
+  }
+
+  return {
+    ...session.config,
+    buttonSeat: seededIndex(
+      `${session.seedBase}:${handNumber}:button`,
+      session.config.playerCount
+    )
+  };
+}
+
 function createRuntimeHud(playerCount: number): RuntimeHudState {
   return Array.from({ length: playerCount }, () => ({
     hands: 0,
@@ -1510,6 +1713,24 @@ function createRuntimeHud(playerCount: number): RuntimeHudState {
     ats: 0,
     atsOpportunities: 0
   }));
+}
+
+function buildNextHandHud(
+  session: RuntimeSession,
+  config: TrainingTableConfig,
+  reason: StartNextHandReason
+): RuntimeHudState {
+  if (reason !== "fast_fold") {
+    return session.hud.map((stats) => ({ ...stats }));
+  }
+
+  const hud = createRuntimeHud(config.playerCount);
+  const heroSeatIndex = config.heroSeatIndex;
+  hud[heroSeatIndex] = {
+    ...session.hud[heroSeatIndex]
+  };
+
+  return hud;
 }
 
 function createCurrentHandHud(handId: string): RuntimeCurrentHandHud {
@@ -1983,6 +2204,18 @@ function canExposeLegalActions(
   );
 }
 
+function shouldFastFoldAfterHeroAction(
+  session: RuntimeSession,
+  action: PlayerAction
+): boolean {
+  return (
+    session.config.tableMode === "fast_fold" &&
+    action.seatIndex === session.config.heroSeatIndex &&
+    action.type === "fold" &&
+    session.status !== "training_ended"
+  );
+}
+
 function appendNewHandEvents(
   session: RuntimeSession,
   previousEvents: HandEvent[]
@@ -2061,6 +2294,20 @@ function createRuntimeId(prefix: string, sequence: number): string {
 
 function createRandomRuntimeId(prefix: string): string {
   return `${prefix}_${randomBytes(16).toString("base64url")}`;
+}
+
+function seededIndex(seed: string, modulo: number): number {
+  if (modulo <= 0) {
+    return 0;
+  }
+
+  let hash = 2166136261;
+  for (let index = 0; index < seed.length; index += 1) {
+    hash ^= seed.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+
+  return Math.abs(hash) % modulo;
 }
 
 function assertPositiveInteger(value: number, fieldName: string): void {

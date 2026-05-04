@@ -109,7 +109,8 @@ function coachView(): HeroCoachView {
         "tight-passive",
         "loose-passive",
         "loose-aggressive"
-      ]
+      ],
+      tableMode: "standard"
     },
     street: "preflop",
     board: [],

@@ -18,6 +18,7 @@ import type {
   RuntimePublicEvent,
   SeatColorTag,
   TrainingTableCreateInput,
+  TrainingTableMode,
   TrainingTableSnapshot,
   UpdateSeatProfileInput
 } from "@/server/training-runtime/types";
@@ -35,6 +36,7 @@ type TableFormState = {
   straddleEnabled: boolean;
   straddleSeat: number;
   straddleAmount: number;
+  tableMode: TrainingTableMode;
   aiStylePreset: "balanced" | "mixed" | "pressure" | "patient";
   preflopStrategyMode: HeroPreflopStrategyMode;
   preflopStrategyPreset: "tight_open" | "button_steal" | "fit_or_fold";
@@ -279,6 +281,7 @@ const DEFAULT_FORM: TableFormState = {
   straddleEnabled: false,
   straddleSeat: 3,
   straddleAmount: 4,
+  tableMode: "standard",
   aiStylePreset: "mixed",
   preflopStrategyMode: "off",
   preflopStrategyPreset: "tight_open"
@@ -310,6 +313,7 @@ const SSE_EVENT_TYPES = [
   "strategy_auto_action_skipped",
   "hud_stats_updated",
   "seat_profile_updated",
+  "fast_fold_abandoned",
   "forced_bet_posted",
   "hole_cards_dealt",
   "player_action",
@@ -509,6 +513,7 @@ export function TrainingEntry({ coachConfig }: TrainingEntryProps) {
         ante: form.ante,
         heroSeatIndex: 0,
         buttonSeat: 0,
+        tableMode: form.tableMode,
         aiStyles: buildAiStyles(form.aiStylePreset, form.playerCount - 1),
         heroPreflopStrategy: buildPreflopStrategyConfig(
           form.preflopStrategyPreset,
@@ -965,12 +970,12 @@ export function TrainingEntry({ coachConfig }: TrainingEntryProps) {
     <section className="trainingEntry" aria-labelledby="training-entry-title">
       <div className="workspaceHeader">
         <div>
-          <p className="eyebrow">M7 牌桌信息密度</p>
+          <p className="eyebrow">M11 Rush 高频训练</p>
           <h1 id="training-entry-title">AI 德州扑克训练桌</h1>
         </div>
         <div className="syncStatus" aria-live="polite">
           {snapshot
-            ? `${STREET_LABELS[snapshot.hand.street]} · ${statusCopy(snapshot)}`
+            ? `${tableModeCopy(snapshot.config.tableMode)} · ${STREET_LABELS[snapshot.hand.street]} · ${statusCopy(snapshot)}`
             : "未创建训练桌"}
         </div>
       </div>
@@ -1123,6 +1128,21 @@ function TableConfigurator({
           <option value="balanced">均衡</option>
           <option value="pressure">压迫</option>
           <option value="patient">耐心</option>
+        </select>
+      </label>
+      <label>
+        模式
+        <select
+          value={form.tableMode}
+          onChange={(event) =>
+            onChange({
+              ...form,
+              tableMode: event.target.value as TrainingTableMode
+            })
+          }
+        >
+          <option value="standard">标准桌</option>
+          <option value="fast_fold">Rush 快弃</option>
         </select>
       </label>
       <label className="toggleField">
@@ -3123,6 +3143,7 @@ function eventTypeCopy(event: RuntimePublicEvent): string {
     strategy_auto_action_skipped: "策略安全停止",
     hud_stats_updated: "HUD 更新",
     seat_profile_updated: "座位标记更新",
+    fast_fold_abandoned: "Rush 快弃离桌",
     forced_bet_posted: "强制下注",
     hole_cards_dealt: "发底牌",
     player_action: "玩家行动",
@@ -3134,6 +3155,15 @@ function eventTypeCopy(event: RuntimePublicEvent): string {
   };
 
   return eventLabels[event.type];
+}
+
+function tableModeCopy(mode: TrainingTableMode): string {
+  const labels: Record<TrainingTableMode, string> = {
+    standard: "标准桌",
+    fast_fold: "Rush"
+  };
+
+  return labels[mode];
 }
 
 function preflopStrategyModeCopy(mode: HeroPreflopStrategyMode): string {

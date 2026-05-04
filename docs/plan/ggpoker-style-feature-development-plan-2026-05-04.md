@@ -159,12 +159,22 @@
 - 单手回放已升级为逐步播放控件，支持上一/下一步、按街道跳转、当前步骤底池/筹码/合法动作快照和事件时间线定位。
 - 验证：`npm run typecheck`、`npm test -- src/server/persistence/training-assets.test.ts src/server/training-runtime/persistence.test.ts`、`npm run lint`、`npm test`、`npm run format`。
 
-### M11：Rush/Fast-Fold 与高频训练
+### M11：Rush/Fast-Fold 与高频训练（已完成 2026-05-04）
 
 - 新增 fast-fold table mode，Hero fold 后立即启动下一手。
 - 支持 player pool 风格随机化和 fast-fold hand lifecycle 标记。
 - 翻前自动策略与 fast-fold 联动，适合高频练习开局范围。
 - 验收：开启策略和 Rush 后可快速过掉不入池手牌，同时保留可复盘的训练资产。
+
+执行结果：
+
+- `TrainingTableCreateInput` / public config 已新增 `tableMode: standard | fast_fold`；创建牌桌 UI 支持选择“标准桌”或“Rush 快弃”，SSE 事件列表支持 `fast_fold_abandoned`。
+- Runtime 在 fast-fold 模式下检测 Hero fold 后不会继续推进旧手其他玩家行动，而是写入 `fast_fold_abandoned` 生命周期事件，记录旧 handId、Hero 退出时筹码/投入、退出 hand sequence 和动作，再立即启动下一手。
+- Fast-fold 下一手使用 player pool 语义：Hero 栈延续，AI 对手以 pool profile 重新入座，AI 风格按配置池和默认风格池做确定性随机化，button seat 每手按 seed 随机，避免固定座位桌体验。
+- Review follow-up：runtime 会在替换当前手牌前缓存最新的 `fast_fold_abandoned` review view，供复盘和持久化路径读取；Rush 换池时只延续 Hero HUD，池内 AI 的 HUD 随新 profile 重置。
+- 翻前自动策略已与 fast-fold 联动：自动 fold 会触发同一套 abandon-and-next-hand 流程；为防止“自动弃牌全部手牌”在单次 runtime 推进中无限循环，连续 fast-fold 自动推进限制为 20 次，达到上限后停在新手等待人工/后续操作。
+- `hand_started` 事件补充 `startingStacks`、`tableMode`、`startReason` 和当手 AI 风格，便于历史/回放 read model 定位 fast-fold 训练资产；当前训练里程碑标记已推进到 M11。
+- 验证：`npm test -- src/server/training-runtime/index.test.ts`、`npm test -- src/server/training-runtime/index.test.ts src/server/training-runtime/persistence.test.ts src/server/persistence/prisma-training-assets.test.ts`、`npm test`、`npm run typecheck`、`npm run lint`、`npm run format`。
 
 ### M12：高级训练闭环
 

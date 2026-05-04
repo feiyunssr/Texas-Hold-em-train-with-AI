@@ -75,6 +75,8 @@ export async function persistRuntimeHandForReview(
 ): Promise<void> {
   const persistedUserId = await findPersistedUserId(prisma, userId);
   const eventLogEntries = buildReviewEventLogEntries(view);
+  const handStatus =
+    view.lifecycle === "fast_fold_abandoned" ? "ABANDONED" : "COMPLETED";
 
   await prisma.$transaction(async (tx) => {
     await upsertTableConfig(
@@ -96,7 +98,7 @@ export async function persistRuntimeHandForReview(
         id: view.handId,
         tableConfigId: view.tableId,
         userId: persistedUserId,
-        status: "COMPLETED",
+        status: handStatus,
         seed: view.tableId,
         buttonSeat: view.buttonSeat,
         smallBlindSeat: view.smallBlindSeat,
@@ -109,7 +111,7 @@ export async function persistRuntimeHandForReview(
       },
       update: {
         userId: persistedUserId,
-        status: "COMPLETED",
+        status: handStatus,
         completedAt: new Date(),
         completionReason: view.completionReason,
         finalStatePayload: toInputJson(view.finalState)

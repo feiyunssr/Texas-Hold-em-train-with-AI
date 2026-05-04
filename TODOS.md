@@ -5,10 +5,22 @@
 ### 2026-05-04: Execute GGpoker-style table enhancement plan
 
 - **Plan:** [GGpoker 对标牌局增强开发计划](docs/plan/ggpoker-style-feature-development-plan-2026-05-04.md)
-- **Remaining scope:** Hero preflop strategy automation, opponent strategy, HUD, PokerCraft-style history, Rush/Fast-Fold training, and advanced training loops.
-- **Next milestone:** M8 Hero preflop strategy automation MVP.
+- **Remaining scope:** Advanced training loops: scenario generation from historical weaknesses, coach-vs-strategy comparison, training goals/progress, and optional Hand Moment export.
+- **Next milestone:** M12 advanced training loop.
 
 ## Completed
+
+### 2026-05-04: Resolve Rush/Fast-Fold review findings
+
+- **Result:** Abandoned fast-fold hands remain available to the review and persistence path after the runtime advances to the next hand, and randomized Rush pool opponents no longer inherit HUD counts from prior occupants of the same seat.
+- **Closed by:** Cached the latest `fast_fold_abandoned` review view before replacing the active hand, persisted that lifecycle as an abandoned hand, and reset non-Hero HUD counters when fast-fold swaps pool AI profiles.
+- **Validation:** `npm test -- src/server/training-runtime/index.test.ts`, `npm test -- src/server/training-runtime/index.test.ts src/server/training-runtime/persistence.test.ts`, and `npm run typecheck`.
+
+### 2026-05-04: Complete M11 Rush/Fast-Fold high-frequency training
+
+- **Result:** Training tables now support `fast_fold` mode: Hero fold abandons the current hand at the exit point, emits a `fast_fold_abandoned` lifecycle event, and immediately starts the next hand.
+- **Closed by:** Added `tableMode` to runtime config and UI creation, implemented player-pool seat/style randomization for fast-fold hands, linked automatic preflop fold strategy into the same fast-fold flow, capped continuous auto fast-fold advancement, and advanced the milestone marker to M11.
+- **Validation:** `npm test -- src/server/training-runtime/index.test.ts`, `npm test -- src/server/training-runtime/index.test.ts src/server/training-runtime/persistence.test.ts src/server/persistence/prisma-training-assets.test.ts`, `npm test`, `npm run typecheck`, `npm run lint`, and `npm run format`.
 
 ### 2026-05-04: Resolve HUD and seat profile review findings
 

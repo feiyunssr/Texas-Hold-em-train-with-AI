@@ -38,6 +38,7 @@ export type TrainingTableStatus =
   | "training_ended";
 
 export type TrainingTableEndReason = "user_quit" | "hero_eliminated";
+export type TrainingTableMode = "standard" | "fast_fold";
 
 export type TrainingTableCreateInput = {
   playerCount: 4 | 6 | 9 | 12;
@@ -52,6 +53,7 @@ export type TrainingTableCreateInput = {
   seed?: string;
   aiStyles?: Array<BotStyle | LegacyBotStyle>;
   heroPreflopStrategy?: PreflopStrategyConfig;
+  tableMode?: TrainingTableMode;
 };
 
 export type TrainingTableConfig = Required<
@@ -67,6 +69,7 @@ export type TrainingTableConfig = Required<
 > &
   Pick<TrainingTableCreateInput, "ante" | "straddleSeat" | "straddleAmount"> & {
     aiStyles: BotStyle[];
+    tableMode: TrainingTableMode;
   };
 
 export type RuntimeSeatProfile = {
@@ -171,6 +174,7 @@ export type RuntimePublicEvent = {
     | "strategy_auto_action_skipped"
     | "hud_stats_updated"
     | "seat_profile_updated"
+    | "fast_fold_abandoned"
     | HandEvent["type"];
   payload: Record<string, unknown>;
   createdAt: string;
@@ -272,12 +276,16 @@ export type HandReviewView = {
   tableId: string;
   handId: string;
   handNumber: number;
+  lifecycle: "completed" | "fast_fold_abandoned";
   tableConfig: TrainingTableConfig;
   heroSeatIndex: number;
   buttonSeat: number;
   smallBlindSeat: number;
   bigBlindSeat: number;
-  completionReason: HandState["completionReason"];
+  completionReason:
+    | NonNullable<HandState["completionReason"]>
+    | "fast_fold_abandoned"
+    | null;
   board: CardCode[];
   potTotal: number;
   awards: HandState["awards"];

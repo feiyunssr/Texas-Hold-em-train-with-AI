@@ -355,6 +355,137 @@ describe("training table runtime", () => {
     ).toBe(true);
   });
 
+  it("starts the next hand immediately after a hero fold in fast-fold mode", () => {
+    const runtime = new TrainingTableRuntime();
+    const created = runtime.createTable({
+      ...baseCreateInput(4),
+      tableMode: "fast_fold",
+      aiStyles: [
+        "tight-passive",
+        "tight-passive",
+        "tight-passive"
+      ] satisfies BotStyle[]
+    });
+    const folded = runtime.submitUserAction(created.snapshot.tableId, {
+      type: "fold"
+    }).snapshot;
+    const events = runtime.getPublicEvents(created.snapshot.tableId);
+    const abandoned = events.find(
+      (event) => event.type === "fast_fold_abandoned"
+    );
+    const fastFoldHandStarted = events.find(
+      (event) =>
+        event.type === "hand_started" &&
+        (event.payload as { startReason?: unknown }).startReason === "fast_fold"
+    );
+
+    expect(folded.config.tableMode).toBe("fast_fold");
+    expect(folded.hand.handId).not.toBe(created.snapshot.hand.handId);
+    expect(abandoned?.payload).toEqual(
+      expect.objectContaining({
+        handId: created.snapshot.hand.handId,
+        reason: "hero_fold",
+        lifecycle: "fast_fold_abandoned"
+      })
+    );
+    expect(fastFoldHandStarted?.payload).toEqual(
+      expect.objectContaining({
+        startReason: "fast_fold",
+        tableMode: "fast_fold"
+      })
+    );
+    expect(
+      folded.hand.seats
+        .filter((seat) => !seat.isHero)
+        .some((seat) => /^pool-\d+-\d+$/.test(seat.playerId))
+    ).toBe(true);
+    expect(folded.hand.seats[0].hud.hands).toBe(2);
+    expect(
+      folded.hand.seats
+        .filter((seat) => !seat.isHero)
+        .every((seat) => seat.hud.hands === 1)
+    ).toBe(true);
+  });
+
+  it("keeps abandoned fast-fold hands reviewable after starting the next hand", () => {
+    const runtime = new TrainingTableRuntime();
+    const created = runtime.createTable({
+      ...baseCreateInput(4),
+      tableMode: "fast_fold",
+      aiStyles: [
+        "tight-passive",
+        "tight-passive",
+        "tight-passive"
+      ] satisfies BotStyle[]
+    });
+    const abandonedHandId = created.snapshot.hand.handId;
+
+    const folded = runtime.submitUserAction(created.snapshot.tableId, {
+      type: "fold"
+    }).snapshot;
+    const review = runtime.getHandReviewView(created.snapshot.tableId);
+
+    expect(folded.hand.handId).not.toBe(abandonedHandId);
+    expect(review.handId).toBe(abandonedHandId);
+    expect(review.lifecycle).toBe("fast_fold_abandoned");
+    expect(review.completionReason).toBe("fast_fold_abandoned");
+    expect(
+      review.timeline.some((event) => {
+        const payload = event.payload as {
+          seatIndex?: unknown;
+          action?: unknown;
+        };
+
+        return (
+          event.type === "player_action" &&
+          payload.seatIndex === created.snapshot.config.heroSeatIndex &&
+          payload.action === "fold"
+        );
+      })
+    ).toBe(true);
+    expect(
+      review.seats
+        .filter((seat) => !seat.isHero)
+        .every((seat) => seat.holeCards.length === 0)
+    ).toBe(true);
+  });
+
+  it("links auto-fold preflop strategy to fast-fold without looping forever", () => {
+    const runtime = new TrainingTableRuntime();
+    const created = runtime.createTable({
+      ...baseCreateInput(4),
+      tableMode: "fast_fold",
+      heroPreflopStrategy: {
+        id: "fast-auto-fold-all",
+        name: "Fast auto fold all",
+        version: "test",
+        mode: "auto",
+        rules: [
+          {
+            id: "all-hands",
+            label: "全部弃牌",
+            facing: "any",
+            handClasses: ["pair", "suited", "offsuit"],
+            action: { kind: "fold" }
+          }
+        ]
+      }
+    });
+    const events = runtime.getPublicEvents(created.snapshot.tableId);
+    const fastFoldEvents = events.filter(
+      (event) => event.type === "fast_fold_abandoned"
+    );
+
+    expect(fastFoldEvents.length).toBeGreaterThan(0);
+    expect(fastFoldEvents.length).toBeLessThanOrEqual(21);
+    expect(created.snapshot.hand.handId).not.toBe(
+      `${created.snapshot.tableId}-hand_000001`
+    );
+    expect(
+      events.some((event) => event.type === "strategy_auto_action_submitted")
+    ).toBe(true);
+  });
+
   it("scopes hand review strategy execution events to the reviewed hand", () => {
     const runtime = new TrainingTableRuntime();
     const created = runtime.createTable({
