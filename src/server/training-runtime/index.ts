@@ -21,6 +21,7 @@ import type {
   RuntimePublicEvent,
   RuntimeSeatProfile,
   SubmitUserActionInput,
+  TrainingTableEndReason,
   TrainingRuntimeEvent,
   TrainingTableConfig,
   TrainingTableCreateInput,
@@ -36,7 +37,8 @@ export class TrainingRuntimeError extends Error {
       | "not_waiting_for_user"
       | "decision_point_locked"
       | "illegal_action"
-      | "hand_not_complete",
+      | "hand_not_complete"
+      | "training_ended",
     message: string
   ) {
     super(message);
@@ -52,6 +54,7 @@ type RuntimeSession = {
   seatProfiles: RuntimeSeatProfile[];
   hand: HandState;
   status: TrainingTableStatus;
+  endReason: TrainingTableEndReason | null;
   seedBase: string;
   publicEvents: RuntimePublicEvent[];
   heroCoachRequests: Map<string, "requesting" | "completed">;
@@ -91,6 +94,7 @@ export class TrainingTableRuntime {
       seatProfiles,
       hand,
       status: "bot_acting",
+      endReason: null,
       seedBase,
       publicEvents: [],
       heroCoachRequests: new Map(),
@@ -169,10 +173,7 @@ export class TrainingTableRuntime {
   getHandReviewView(tableId: string): HandReviewView {
     const session = this.requireSession(tableId);
 
-    if (
-      session.status !== "hand_complete" ||
-      session.hand.street !== "complete"
-    ) {
+    if (session.hand.street !== "complete") {
       throw new TrainingRuntimeError(
         "hand_not_complete",
         "Hand review view can only be built after the hand is complete."
@@ -246,6 +247,13 @@ export class TrainingTableRuntime {
     input: SubmitUserActionInput
   ): TrainingRuntimeEvent {
     let session = this.requireSession(tableId);
+    if (session.status === "training_ended") {
+      throw new TrainingRuntimeError(
+        "training_ended",
+        "The training table has ended and cannot accept actions."
+      );
+    }
+
     const heroSeatIndex = session.config.heroSeatIndex;
 
     if (
@@ -336,11 +344,32 @@ export class TrainingTableRuntime {
 
   startNextHand(tableId: string): TrainingRuntimeEvent {
     let session = this.requireSession(tableId);
+    if (session.status === "training_ended") {
+      throw new TrainingRuntimeError(
+        "training_ended",
+        "The training table has ended and cannot start another hand."
+      );
+    }
+
     if (session.status !== "hand_complete") {
       throw new TrainingRuntimeError(
         "hand_not_complete",
         "The next hand can only start after the current hand is complete."
       );
+    }
+
+    if (isHeroEliminated(session)) {
+      session = this.endTraining(session, "hero_eliminated");
+      this.sessions.set(tableId, session);
+      const snapshot = buildTableSnapshot(session);
+      const events = session.publicEvents.slice(-2);
+      this.publishAll(session, events, snapshot);
+
+      return {
+        type: "advanced",
+        snapshot,
+        events
+      };
     }
 
     const handNumber = session.handNumber + 1;
@@ -365,6 +394,7 @@ export class TrainingTableRuntime {
       config: nextConfig,
       hand,
       status: "bot_acting",
+      endReason: null,
       heroCoachRequests: new Map(),
       updatedAt: new Date()
     };
@@ -377,6 +407,32 @@ export class TrainingTableRuntime {
     });
     session = appendNewHandEvents(session, []);
     session = this.advanceBots(session);
+    this.sessions.set(tableId, session);
+
+    const snapshot = buildTableSnapshot(session);
+    const events = session.publicEvents.slice(previousPublicEventCount);
+    this.publishAll(session, events, snapshot);
+
+    return {
+      type: "advanced",
+      snapshot,
+      events
+    };
+  }
+
+  quitTable(tableId: string): TrainingRuntimeEvent {
+    let session = this.requireSession(tableId);
+    if (session.status === "training_ended") {
+      const snapshot = buildTableSnapshot(session);
+      return {
+        type: "advanced",
+        snapshot,
+        events: []
+      };
+    }
+
+    const previousPublicEventCount = session.publicEvents.length;
+    session = this.endTraining(session, "user_quit");
     this.sessions.set(tableId, session);
 
     const snapshot = buildTableSnapshot(session);
@@ -423,20 +479,56 @@ export class TrainingTableRuntime {
       nextSession = this.applyRuntimeAction(nextSession, action);
     }
 
+    const isHandComplete = nextSession.hand.street === "complete";
     nextSession = {
       ...nextSession,
-      status:
-        nextSession.hand.street === "complete"
-          ? "hand_complete"
-          : "waiting_for_user",
+      status: isHandComplete
+        ? isHeroEliminated(nextSession)
+          ? "training_ended"
+          : "hand_complete"
+        : "waiting_for_user",
+      endReason:
+        isHandComplete && isHeroEliminated(nextSession)
+          ? "hero_eliminated"
+          : nextSession.endReason,
       updatedAt: new Date()
     };
 
+    if (nextSession.status === "training_ended") {
+      nextSession = appendRuntimeEvent(nextSession, "training_ended", {
+        reason: nextSession.endReason
+      });
+    }
+
     return appendRuntimeEvent(nextSession, "runtime_snapshot", {
       status: nextSession.status,
+      endReason: nextSession.endReason,
       currentActorSeat: nextSession.hand.currentActorSeat,
       street: nextSession.hand.street
     });
+  }
+
+  private endTraining(
+    session: RuntimeSession,
+    reason: TrainingTableEndReason
+  ): RuntimeSession {
+    const ended = {
+      ...session,
+      status: "training_ended" as const,
+      endReason: reason,
+      updatedAt: new Date()
+    };
+
+    return appendRuntimeEvent(
+      appendRuntimeEvent(ended, "training_ended", { reason }),
+      "runtime_snapshot",
+      {
+        status: "training_ended",
+        endReason: reason,
+        currentActorSeat: ended.hand.currentActorSeat,
+        street: ended.hand.street
+      }
+    );
   }
 
   private applyRuntimeAction(
@@ -512,10 +604,9 @@ export function buildBotSeatView(
   seatIndex: number
 ): BotSeatView {
   const profile = session.seatProfiles[seatIndex];
-  const legalActions =
-    session.hand.currentActorSeat === seatIndex
-      ? getLegalActions(session.hand)
-      : [];
+  const legalActions = canExposeLegalActions(session, seatIndex)
+    ? getLegalActions(session.hand)
+    : [];
 
   return {
     tableId: session.tableId,
@@ -560,10 +651,9 @@ export function buildBotSeatView(
 export function buildHeroCoachView(session: RuntimeSession): HeroCoachView {
   const heroSeatIndex = session.config.heroSeatIndex;
   const heroSeat = session.hand.seats[heroSeatIndex];
-  const legalActions =
-    session.hand.currentActorSeat === heroSeatIndex
-      ? getLegalActions(session.hand)
-      : [];
+  const legalActions = canExposeLegalActions(session, heroSeatIndex)
+    ? getLegalActions(session.hand)
+    : [];
   const streetBySequence = new Map<number, typeof session.hand.street>();
   let currentStreet: typeof session.hand.street = "preflop";
 
@@ -664,6 +754,7 @@ export function buildTableSnapshot(
   return {
     tableId: session.tableId,
     status: session.status,
+    endReason: session.endReason,
     config: session.config,
     hand: buildPublicHandState(session),
     createdAt: session.createdAt.toISOString(),
@@ -889,10 +980,12 @@ function chooseBotAction(view: BotSeatView): PlayerAction {
 }
 
 function buildPublicHandState(session: RuntimeSession): PublicHandState {
-  const legalActions =
-    session.hand.currentActorSeat === session.config.heroSeatIndex
-      ? getLegalActions(session.hand)
-      : [];
+  const legalActions = canExposeLegalActions(
+    session,
+    session.config.heroSeatIndex
+  )
+    ? getLegalActions(session.hand)
+    : [];
 
   return {
     handId: session.handId,
@@ -930,6 +1023,20 @@ function buildPublicHandState(session: RuntimeSession): PublicHandState {
     lastSequence:
       session.publicEvents[session.publicEvents.length - 1]?.sequence ?? 0
   };
+}
+
+function isHeroEliminated(session: RuntimeSession): boolean {
+  return session.hand.seats[session.config.heroSeatIndex]?.stack <= 0;
+}
+
+function canExposeLegalActions(
+  session: RuntimeSession,
+  seatIndex: number
+): boolean {
+  return (
+    session.status !== "training_ended" &&
+    session.hand.currentActorSeat === seatIndex
+  );
 }
 
 function appendNewHandEvents(

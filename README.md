@@ -92,11 +92,13 @@ M0 已建立 Next.js App Router + TypeScript 单体仓库基础：
   - `POST /api/training/tables` 创建 4、6、9 或 12 人训练桌。
   - `POST /api/training/tables/:tableId/actions` 提交用户动作，并由规则引擎校验合法动作集合。
   - `POST /api/training/tables/:tableId/next-hand` 在当前手牌完成后准备下一手。
+  - `POST /api/training/tables/:tableId/quit` 主动结束当前训练桌。
 - 状态读取与同步：
   - `GET /api/training/tables/:tableId` 返回当前 public snapshot，可用于刷新后恢复。
   - `GET /api/training/tables/:tableId/events` 提供 SSE stream，并在订阅时先推送当前 snapshot；重连回放优先使用浏览器 `Last-Event-ID`，再回退到 `?after=`。
 - 对外暴露的 `tableId` 使用 crypto-random ID，避免递增 ID 被猜测后读取或操作其他训练桌。
 - AI 对手只能通过 `bot-seat-view` 获取该座位理论可见信息；public snapshot 在手牌完成前隐藏非 Hero 底牌。
+- 训练桌支持跨多手连续训练：手牌完成后可手动继续，也可在 UI 中开启自动继续；训练只会在玩家主动退出或 Hero 筹码归零时结束。
 
 ## 行动前 AI 教练建议
 
@@ -118,7 +120,8 @@ M0 已建立 Next.js App Router + TypeScript 单体仓库基础：
 - 实时牌桌展示公共牌、主池、边池、当前街道、当前行动者、座位状态、筹码、本街投入、AI 风格和 button/blind 标记。
 - `ActionTray` 只显示当前规则引擎返回的合法动作，并提供下注/加注滑杆、快捷尺度和精确输入。
 - `AI 教练视角` 面板展示 available、requesting、saved charged、pending persistence、failed not charged、partial not final 和 already requested 状态；失败和 partial 明确显示未扣点。
-- 手牌结束后显示结算摘要、行动摘要和下一手入口。
+- 手牌结束后显示结算摘要、行动摘要、继续控制和下一手入口；自动继续默认开启，会在手牌完成后进入下一手，关闭时停留到玩家再次点击继续。
+- 退出训练按钮会结束当前训练桌；Hero 筹码归零时 UI 显示被淘汰并禁止继续下一手。
 - 移动端按 12 人桌压缩布局组织座位、桌面、用户席位、行动区和教练面板，行动按钮固定在底部可触达。
 
 ## 复盘、历史与回放

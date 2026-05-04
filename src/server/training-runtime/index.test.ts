@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { TrainingTableRuntime } from "./index";
+import { TrainingRuntimeError, TrainingTableRuntime } from "./index";
 import type { BotStyle, TrainingTableSnapshot } from "./types";
 
 describe("training table runtime", () => {
@@ -174,6 +174,65 @@ describe("training table runtime", () => {
     expect(nextHand.hand.handId).not.toBe(snapshot.hand.handId);
     expect(nextHand.hand.seats).toHaveLength(4);
     expect(["waiting_for_user", "hand_complete"]).toContain(nextHand.status);
+  });
+
+  it("ends the training table when the user quits", () => {
+    const runtime = new TrainingTableRuntime();
+    const created = runtime.createTable(baseCreateInput(4));
+    const pushedEvents: string[] = [];
+    const unsubscribe = runtime.subscribe(created.snapshot.tableId, (event) => {
+      pushedEvents.push(event.type);
+    });
+
+    const result = runtime.quitTable(created.snapshot.tableId);
+    unsubscribe();
+
+    expect(result.snapshot.status).toBe("training_ended");
+    expect(result.snapshot.endReason).toBe("user_quit");
+    expect(result.snapshot.hand.currentActorSeat).toBe(
+      created.snapshot.config.heroSeatIndex
+    );
+    expect(result.snapshot.hand.legalActions).toEqual([]);
+    expect(
+      runtime.getTableSnapshot(created.snapshot.tableId).hand.legalActions
+    ).toEqual([]);
+    expect(pushedEvents).toContain("training_ended");
+    expect(() =>
+      runtime.submitUserAction(
+        created.snapshot.tableId,
+        preferPassiveAction(created.snapshot)
+      )
+    ).toThrow(TrainingRuntimeError);
+  });
+
+  it("ends training when the hero stack reaches zero", () => {
+    const runtime = new TrainingTableRuntime();
+    const created = runtime.createTable({
+      ...baseCreateInput(4),
+      smallBlind: 5,
+      bigBlind: 10,
+      startingStack: 20,
+      seed: "elim-0"
+    });
+    const allIn = created.snapshot.hand.legalActions.find(
+      (action) => action.type === "all-in"
+    );
+
+    if (!allIn) {
+      throw new Error("Expected an all-in action to be legal.");
+    }
+
+    const result = runtime.submitUserAction(created.snapshot.tableId, {
+      type: "all-in",
+      amount: allIn.amount
+    });
+
+    expect(result.snapshot.status).toBe("training_ended");
+    expect(result.snapshot.endReason).toBe("hero_eliminated");
+    expect(result.snapshot.hand.seats[0].stack).toBe(0);
+    expect(() => runtime.startNextHand(created.snapshot.tableId)).toThrow(
+      TrainingRuntimeError
+    );
   });
 });
 

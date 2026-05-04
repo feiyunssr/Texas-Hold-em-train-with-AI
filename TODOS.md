@@ -6,6 +6,24 @@ No open documentation TODOs.
 
 ## Completed
 
+### 2026-05-04: Fix auto-continue default and scheduling
+
+- **Result:** Auto-continue starts enabled by default and advances to the next hand after a completed hand without requiring the manual "start next hand" button.
+- **Closed by:** Kept the continue toggle enabled on initial render and new table creation, and moved the auto-continue hand de-duplication marker into the delayed execution path so React effect cleanup does not cancel the only scheduled advance.
+- **Validation:** Targeted Prettier check, `npm run typecheck`, and `npm run lint`.
+
+### 2026-05-04: Resolve continuous training review findings
+
+- **Result:** Ended training snapshots no longer expose stale legal actions after the user quits mid-hand, and generated Next.js type reference drift was removed.
+- **Closed by:** Suppressed legal action exposure whenever a runtime session is `training_ended`, added regression coverage for quitting while Hero is facing a decision, and restored `next-env.d.ts` to the production build route type import.
+- **Validation:** `npm test -- src/server/training-runtime/index.test.ts` and targeted Prettier check.
+
+### 2026-05-04: Add continuous training controls and end conditions
+
+- **Result:** Training tables can continue across hands, pause after a completed hand, auto-continue when enabled, and end only when the player exits or Hero is eliminated.
+- **Closed by:** Added `training_ended` runtime snapshots, Hero elimination detection, `POST /api/training/tables/:tableId/quit`, UI continue/exit controls, and documentation for the continuous training behavior.
+- **Validation:** `npm run typecheck`, `npm test -- src/server/training-runtime/index.test.ts`, `npm test`, `npm run lint`, targeted Prettier check, `npm run build`, `curl http://localhost:3001/health`, and `POST /api/training/tables/:tableId/quit` smoke test on port 3001.
+
 ### 2026-05-04: Place player state around the poker table
 
 - **Result:** Player state tokens now render around the felt table at their visual seat positions instead of as a top rail above the table.

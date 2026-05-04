@@ -229,6 +229,7 @@ const DEFAULT_HISTORY_FILTERS: HandHistoryFilters = {
 const SSE_EVENT_TYPES = [
   "table_created",
   "hand_started",
+  "training_ended",
   "runtime_snapshot",
   "user_action_rejected",
   "forced_bet_posted",
@@ -273,6 +274,8 @@ export function TrainingEntry({ coachConfig }: TrainingEntryProps) {
   const [isCreating, setIsCreating] = useState(false);
   const [isSubmittingAction, setIsSubmittingAction] = useState(false);
   const [isStartingNextHand, setIsStartingNextHand] = useState(false);
+  const [isQuittingTraining, setIsQuittingTraining] = useState(false);
+  const [continueEnabled, setContinueEnabled] = useState(true);
   const [selectedAmount, setSelectedAmount] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
   const [coachState, setCoachState] = useState<CoachPanelState>({
@@ -294,6 +297,7 @@ export function TrainingEntry({ coachConfig }: TrainingEntryProps) {
   const [isLoadingReplay, setIsLoadingReplay] = useState(false);
   const [lastDecisionKey, setLastDecisionKey] = useState<string | null>(null);
   const isSubmittingActionRef = useRef(false);
+  const autoContinueHandRef = useRef<string | null>(null);
 
   const legalActions = snapshot?.hand.legalActions ?? [];
   const betLikeAction = useMemo(
@@ -370,6 +374,30 @@ export function TrainingEntry({ coachConfig }: TrainingEntryProps) {
   }, [decisionKey, lastDecisionKey]);
 
   useEffect(() => {
+    if (
+      !snapshot ||
+      !continueEnabled ||
+      snapshot.status !== "hand_complete" ||
+      isStartingNextHand ||
+      autoContinueHandRef.current === snapshot.hand.handId
+    ) {
+      return;
+    }
+
+    const handId = snapshot.hand.handId;
+    const timeout = window.setTimeout(() => {
+      if (autoContinueHandRef.current === handId) {
+        return;
+      }
+
+      autoContinueHandRef.current = handId;
+      void startNextHand();
+    }, 700);
+
+    return () => window.clearTimeout(timeout);
+  }, [snapshot, continueEnabled, isStartingNextHand]);
+
+  useEffect(() => {
     void loadHistory();
   }, []);
 
@@ -413,6 +441,8 @@ export function TrainingEntry({ coachConfig }: TrainingEntryProps) {
 
       setSnapshot(payload as TrainingTableSnapshot);
       setEvents([]);
+      setContinueEnabled(true);
+      autoContinueHandRef.current = null;
       setReviewState({
         status: "idle",
         message: "手牌结束后可请求完整复盘。"
@@ -555,6 +585,7 @@ export function TrainingEntry({ coachConfig }: TrainingEntryProps) {
         status: "idle",
         message: "手牌结束后可请求完整复盘。"
       });
+      autoContinueHandRef.current = null;
     } catch (error) {
       setNotice(errorMessage(error, "下一手牌启动失败。"));
     } finally {
@@ -562,8 +593,56 @@ export function TrainingEntry({ coachConfig }: TrainingEntryProps) {
     }
   }
 
+  async function toggleContinue() {
+    if (!snapshot || snapshot.status === "training_ended") {
+      return;
+    }
+
+    if (snapshot.status === "hand_complete") {
+      setContinueEnabled(true);
+      await startNextHand();
+      return;
+    }
+
+    setContinueEnabled((current) => !current);
+  }
+
+  async function quitTraining() {
+    if (!snapshot || snapshot.status === "training_ended") {
+      return;
+    }
+
+    setIsQuittingTraining(true);
+    setNotice(null);
+
+    try {
+      const response = await fetch(
+        `/api/training/tables/${snapshot.tableId}/quit`,
+        { method: "POST" }
+      );
+      const payload = (await response.json()) as
+        | TrainingTableSnapshot
+        | { message?: string };
+
+      if (!response.ok) {
+        throw new Error("message" in payload ? payload.message : undefined);
+      }
+
+      setSnapshot(payload as TrainingTableSnapshot);
+      setContinueEnabled(false);
+      setCoachState({
+        status: "available",
+        message: "训练已结束。"
+      });
+    } catch (error) {
+      setNotice(errorMessage(error, "退出训练失败。"));
+    } finally {
+      setIsQuittingTraining(false);
+    }
+  }
+
   async function requestHandReview() {
-    if (!snapshot || snapshot.status !== "hand_complete") {
+    if (!snapshot || snapshot.hand.street !== "complete") {
       return;
     }
 
@@ -736,8 +815,12 @@ export function TrainingEntry({ coachConfig }: TrainingEntryProps) {
             events={events}
             reviewState={reviewState}
             isStartingNextHand={isStartingNextHand}
+            isQuittingTraining={isQuittingTraining}
+            continueEnabled={continueEnabled}
             onRequestReview={requestHandReview}
             onStartNextHand={startNextHand}
+            onToggleContinue={toggleContinue}
+            onQuitTraining={quitTraining}
           />
           <HistoryPanel
             rows={historyRows}
@@ -1315,18 +1398,28 @@ function HandSummary({
   events,
   reviewState,
   isStartingNextHand,
+  isQuittingTraining,
+  continueEnabled,
   onRequestReview,
-  onStartNextHand
+  onStartNextHand,
+  onToggleContinue,
+  onQuitTraining
 }: {
   snapshot: TrainingTableSnapshot | null;
   events: RuntimePublicEvent[];
   reviewState: ReviewPanelState;
   isStartingNextHand: boolean;
+  isQuittingTraining: boolean;
+  continueEnabled: boolean;
   onRequestReview: () => void;
   onStartNextHand: () => void;
+  onToggleContinue: () => void;
+  onQuitTraining: () => void;
 }) {
   const awards = snapshot?.hand.awards ?? [];
   const recentEvents = events.slice(-8).reverse();
+  const isTrainingEnded = snapshot?.status === "training_ended";
+  const isCompletedHand = snapshot?.hand.street === "complete";
 
   return (
     <section className="handSummary" aria-label="手牌结束摘要和复盘入口">
@@ -1336,10 +1429,38 @@ function HandSummary({
           <h2>{snapshot?.hand.handId ?? "等待第一手"}</h2>
         </div>
       </div>
-      {snapshot?.status === "hand_complete" ? (
+      {snapshot ? (
+        <div className="trainingControls" aria-label="训练控制">
+          <button
+            type="button"
+            className="primaryButton fullWidthButton"
+            aria-pressed={continueEnabled}
+            disabled={isTrainingEnded || isStartingNextHand}
+            onClick={onToggleContinue}
+          >
+            {continueButtonCopy(snapshot, continueEnabled, isStartingNextHand)}
+          </button>
+          <button
+            type="button"
+            className="dangerButton fullWidthButton"
+            disabled={isTrainingEnded || isQuittingTraining}
+            onClick={onQuitTraining}
+          >
+            {isQuittingTraining ? "退出中" : "退出训练"}
+          </button>
+        </div>
+      ) : null}
+      {isTrainingEnded ? (
+        <p className="coachMessage">{trainingEndedCopy(snapshot)}</p>
+      ) : null}
+      {isCompletedHand ? (
         <>
           <p className="coachMessage">
-            本手牌已结束，可从这里查看结算、行动摘要并发起整手复盘。
+            {snapshot?.status === "hand_complete"
+              ? continueEnabled
+                ? "本手牌已结束，系统会自动准备下一手。"
+                : "本手牌已结束，可停留查看结算，或按继续进入下一手。"
+              : "本手牌已结束，可查看最终结算。"}
           </p>
           <div className="summaryRows">
             {awards.map((award, index) => (
@@ -1364,7 +1485,7 @@ function HandSummary({
           <button
             type="button"
             className="secondaryButton fullWidthButton"
-            disabled={isStartingNextHand}
+            disabled={isStartingNextHand || isTrainingEnded}
             onClick={onStartNextHand}
           >
             {isStartingNextHand ? "准备中" : "开始下一手"}
@@ -1372,7 +1493,9 @@ function HandSummary({
         </>
       ) : (
         <p className="coachMessage">
-          手牌结束后这里会显示结算摘要和基础复盘入口。
+          {snapshot
+            ? "手牌结束后这里会显示结算摘要和基础复盘入口。"
+            : "创建训练桌后这里会显示训练控制和手牌摘要。"}
         </p>
       )}
       <details className="replayDetails">
@@ -1838,6 +1961,10 @@ function actionTrayTitle(snapshot: TrainingTableSnapshot | null): string {
     return "创建牌桌后显示合法动作";
   }
 
+  if (snapshot.status === "training_ended") {
+    return "训练已结束";
+  }
+
   if (snapshot.status === "waiting_for_user") {
     return "轮到你行动";
   }
@@ -1850,6 +1977,10 @@ function actionTrayTitle(snapshot: TrainingTableSnapshot | null): string {
 }
 
 function statusCopy(snapshot: TrainingTableSnapshot): string {
+  if (snapshot.status === "training_ended") {
+    return trainingEndedCopy(snapshot);
+  }
+
   if (snapshot.status === "waiting_for_user") {
     return "轮到你行动";
   }
@@ -1859,6 +1990,34 @@ function statusCopy(snapshot: TrainingTableSnapshot): string {
   }
 
   return "AI 对手行动中";
+}
+
+function continueButtonCopy(
+  snapshot: TrainingTableSnapshot,
+  continueEnabled: boolean,
+  isStartingNextHand: boolean
+): string {
+  if (isStartingNextHand) {
+    return "准备下一手";
+  }
+
+  if (snapshot.status === "hand_complete") {
+    return continueEnabled ? "自动继续中" : "继续下一手";
+  }
+
+  return continueEnabled ? "自动继续：开" : "自动继续：关";
+}
+
+function trainingEndedCopy(snapshot: TrainingTableSnapshot): string {
+  if (snapshot.endReason === "hero_eliminated") {
+    return "Hero 筹码归零，训练结束";
+  }
+
+  if (snapshot.endReason === "user_quit") {
+    return "玩家已主动退出训练";
+  }
+
+  return "训练已结束";
 }
 
 function streetLabel(street: string): string {
@@ -1969,6 +2128,7 @@ function eventTypeCopy(event: RuntimePublicEvent): string {
   const eventLabels: Record<RuntimePublicEvent["type"], string> = {
     table_created: "牌桌创建",
     hand_started: "手牌开始",
+    training_ended: "训练结束",
     runtime_snapshot: "状态同步",
     user_action_rejected: "行动被拒绝",
     forced_bet_posted: "强制下注",

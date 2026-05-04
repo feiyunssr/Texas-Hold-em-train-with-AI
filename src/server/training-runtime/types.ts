@@ -15,7 +15,10 @@ export type BotStyle = "tight" | "balanced" | "loose" | "aggressive";
 export type TrainingTableStatus =
   | "waiting_for_user"
   | "bot_acting"
-  | "hand_complete";
+  | "hand_complete"
+  | "training_ended";
+
+export type TrainingTableEndReason = "user_quit" | "hero_eliminated";
 
 export type TrainingTableCreateInput = {
   playerCount: 4 | 6 | 9 | 12;
@@ -91,6 +94,7 @@ export type RuntimePublicEvent = {
   type:
     | "table_created"
     | "hand_started"
+    | "training_ended"
     | "runtime_snapshot"
     | "user_action_rejected"
     | HandEvent["type"];
@@ -101,6 +105,7 @@ export type RuntimePublicEvent = {
 export type TrainingTableSnapshot = {
   tableId: string;
   status: TrainingTableStatus;
+  endReason: TrainingTableEndReason | null;
   config: TrainingTableConfig;
   hand: PublicHandState;
   createdAt: string;
